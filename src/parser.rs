@@ -190,6 +190,21 @@ fn parse_flag(chars: &[char], start: usize) -> (Token, usize) {
         }
     }
 
+    // If flag_name contains non-alphabetic chars (e.g. ">", "->"),
+    // it's not a real flag — treat the whole token as a literal.
+    let is_known_flag = matches!(
+        flag_name.as_str(),
+        "g" | "d" | "D" | "E" | "f" | "p" | "pl" | "pr" | "l" | "r" | "W" | "w" | "n" | "c" | "C"
+    ) || flag_name.chars().all(|c| c.is_ascii_alphabetic());
+
+    if !is_known_flag {
+        // Reconstruct the literal: the '-' plus whatever followed
+        let literal: String = std::iter::once('-')
+            .chain(chars[flag_start..i].iter().copied())
+            .collect();
+        return (Token::Literal(literal), i - start);
+    }
+
     (Token::Flag(flag_name), i - start)
 }
 
