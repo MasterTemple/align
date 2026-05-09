@@ -1,13 +1,21 @@
 # align
 
-A CLI tool that aligns text by matched characters or RegEx patterns.
-Designed to be used standalone or piped through Vim (`:'<,'>!align`).
+A CLI tool that aligns text by matching on string literals or Regular Expressions, with options to left/right align, customize padding, filter, and more.
+
+Designed to be piped through Vim (`:'<,'>!align`) or used standalone in the shell.
+
+
 
 ## Quick Start
+
+> [!NOTE]
+> Vim or the shell may consume certain characters like `;` or `#`, in that case, wrap with any quotes (`"`, `'`, or `\``)
 
 ### Vim
 
 Apply to a visual selection
+
+**Before:**
 
 ```rust
 match value {
@@ -18,9 +26,13 @@ match value {
 }
 ```
 
+**Then:**
+
 ```vim
 :'<,'>!align if '=>'
 ```
+
+**After:**
 
 ```rust
 match value {
@@ -31,14 +43,20 @@ match value {
 }
 ```
 
+**Before:**
+
 ```sql
 join some_table T on T.onefield=O.twofield, -- some comment
 left join some_other_table O on O.redfield = T.bluefield, -- another comment!
 ```
 
+**Then:**
+
 ```vim
 :'<,'>!align join on = --
 ```
+
+**After:**
 
 ```sql
      join some_table T       on T.onefield = O.twofield,  -- some comment
@@ -86,7 +104,7 @@ Delimited by `/`:
 
 ```sh
 align /=>/          # match =>
-align /\s*=\s*/     # match = with surrounding whitespace
+align /\\s*=\\s*/     # match = with surrounding whitespace
 align /foo/gi       # case-insensitive, global (find all)
 ```
 
@@ -127,80 +145,91 @@ These follow immediately after their pattern:
 | `-c {pat}`  | Context pattern — aligns the slice before the match  |
 | `-C`        | Use the entire slice before the match as context     |
 
-**Flags before any pattern** override defaults for all patterns.
+> [!NOTE]
+> Flags before any pattern **override** defaults for all patterns.
 
----
-
-## Examples
-
-### Basic alignment
-
-```sh
-printf 'a = 1\nfoobar = 2\nx = 3\n' | align =
-# a      = 1
-# foobar = 2
-# x      = 3
-```
-
-### Multiple patterns
-
-```sh
-printf 'a = 1: foo\nlonger = 22: bar\n' | align = :
-# a      = 1:  foo
-# longer = 22: bar
-```
-
-### Regex alignment
-
-```sh
-printf 'key => value\nlonger_key => other\n' | align /=>/
-# key        => value
-# longer_key => other
-```
-
-### Dot alignment with context (`-c`)
-
-```sh
-printf '3.14\n72.0\n1.618\n' | align . -p 0 -c '/\d+$/'
-#  3.14
-# 72.0
-#  1.618
-```
-
-### Custom filler
-
-```sh
-printf 'a = 1\nfoobar = 2\n' | align = -f .
-# a...... = 1
-# foobar  = 2
-```
-
-### Delete non-matching lines
-
-```sh
-printf 'match = yes\nno match here\nalso = yes\n' | align -d =
-# match = yes
-# also  = yes
-```
-
-### Only align when all patterns match (`-e`)
-
-```sh
-printf 'a = 1: x\nb = 2\nc = 3: z\n' | align -e = :
-# a = 1: x  ← aligned (has both = and :)
-# b = 2      ← unchanged (missing :)
-# c = 3: z  ← aligned
-```
-
-### Vim usage
-
-In visual mode, select lines and run:
-
-```vim
-:'<,'>!align =
-:'<,'>!align /=>/ -p 2
-:'<,'>!align = : -e
-```
+<!-- --- -->
+<!---->
+<!-- ## Examples -->
+<!---->
+<!-- ### Basic alignment -->
+<!---->
+<!-- ```sh -->
+<!-- printf 'a = 1\nfoobar = 2\nx = 3\n' | align = -->
+<!-- # a      = 1 -->
+<!-- # foobar = 2 -->
+<!-- # x      = 3 -->
+<!-- ``` -->
+<!---->
+<!-- ### Multiple patterns -->
+<!---->
+<!-- ```sh -->
+<!-- printf 'a = 1: foo\nlonger = 22: bar\n' | align = : -->
+<!-- # a      = 1:  foo -->
+<!-- # longer = 22: bar -->
+<!-- ``` -->
+<!---->
+<!-- ### Regex alignment -->
+<!---->
+<!-- ```sh -->
+<!-- printf 'key => value\nlonger_key => other\n' | align /=>/ -->
+<!-- # key        => value -->
+<!-- # longer_key => other -->
+<!-- ``` -->
+<!---->
+<!-- ### Dot alignment with context (`-c`) -->
+<!---->
+<!-- ```sh -->
+<!-- printf '3.14\n72.0\n1.618\n' | align . -p 0 -c '/\d+$/' -->
+<!-- #  3.14 -->
+<!-- # 72.0 -->
+<!-- #  1.618 -->
+<!-- ``` -->
+<!---->
+<!-- ### Custom filler -->
+<!---->
+<!-- ```sh -->
+<!-- printf 'a = 1\nfoobar = 2\n' | align = -f . -->
+<!-- # a...... = 1 -->
+<!-- # foobar  = 2 -->
+<!-- ``` -->
+<!---->
+<!-- ### Delete non-matching lines -->
+<!---->
+<!-- ```sh -->
+<!-- printf 'match = yes\nno match here\nalso = yes\n' | align -d = -->
+<!-- # match = yes -->
+<!-- # also  = yes -->
+<!-- ``` -->
+<!---->
+<!-- ### Only align when all patterns match (`-e`) -->
+<!---->
+<!-- ### Only align certain lines (`-g`) -->
+<!---->
+<!-- ### Don't align certain lines (`-v`) -->
+<!---->
+<!-- ```sh -->
+<!-- printf 'a = 1: x\nb = 2\nc = 3: z\n' | align -e = : -->
+<!-- # a=1:x -->
+<!-- # b=2 -->
+<!-- # c=3:z -->
+<!-- ``` -->
+<!---->
+<!-- ```bash -->
+<!-- a = 1 : x # ← aligned (has both = and : ) -->
+<!-- b=2       # ← unchanged (missing :) -->
+<!-- c = 3 : z # ← aligned (has both = and : ) -->
+<!-- ``` -->
+<!---->
+<!-- ### Vim usage -->
+<!---->
+<!-- In visual mode, select lines and run: -->
+<!---->
+<!-- ```vim -->
+<!-- :'<,'>!align = -->
+<!-- :'<,'>!align /=>/ -p 2 -->
+<!-- :'<,'>!align = : -e -->
+<!-- ``` -->
 
 ---
 
