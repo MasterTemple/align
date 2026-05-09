@@ -2,7 +2,7 @@
 name = "align"
 version = "0.1.0"
 edition = "2021"
-description = "A CLI tool that aligns matched characters across lines by inserting/trimming filler characters"
+description = "A CLI tool to align text by matched characters/patterns"
 authors = []
 
 [[bin]]
@@ -11,6 +11,7 @@ path = "src/main.rs"
 
 [dependencies]
 fancy-regex = "0.13"
+regress = "0.10"
 directories = "5"
 toml = "0.8"
 serde = { version = "1", features = ["derive"] }

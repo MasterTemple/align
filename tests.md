@@ -38,6 +38,9 @@ let another_var = 72.01; # another comment
 let some_var = 3.1; # a comment
 let another_var = 72.01; # another comment
 
+hi 3 ok
+o 12 no
+
 ---
 
 Input:

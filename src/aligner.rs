@@ -1,414 +1,420 @@
-use fancy_regex::Regex;
+use std::collections::HashMap;
 use unicode_width::UnicodeWidthStr;
 
-use crate::parser::{GlobalFlags, PatternFlags, PatternKind, PatternSpec, Repeat};
+use crate::engine::{compile_literal, CompiledRegex, RegexEngine, RegexMatch};
+use crate::parser::{AlignPattern, Command};
 
-// ---------------------------------------------------------------------------
-// Public entry point
-// ---------------------------------------------------------------------------
+/// A match found in a line for a particular pattern slot
+#[derive(Debug, Clone)]
+struct SlotMatch {
+    /// Byte offset of match start in the line
+    start: usize,
+    /// Byte offset of match end in the line
+    end: usize,
+    /// Optional context match (byte range) preceding this match
+    context_start: Option<usize>,
+}
 
-pub fn process(lines: &[String], global: &GlobalFlags, specs: &[PatternSpec]) -> Vec<String> {
-    if specs.is_empty() {
-        return lines.to_vec();
+pub struct Aligner {
+    cmd: Command,
+}
+
+impl Aligner {
+    pub fn new(cmd: Command) -> Self {
+        Aligner { cmd }
     }
 
-    // Compile all patterns once.
-    let compiled: Vec<CompiledSpec> = specs.iter().map(|s| compile_spec(s)).collect();
-
-    // For each pattern, find all match positions across all lines.
-    // Then for each "column group" compute the target column and rewrite lines.
-
-    // We process patterns left-to-right, each time re-parsing the (already
-    // partially-rewritten) lines so that earlier alignments affect the column
-    // positions seen by later patterns.
-
-    let mut result: Vec<String> = lines.to_vec();
-
-    // First, decide which lines are eligible (global -g/-d/-D flags).
-    let any_match: Vec<bool> = result
-        .iter()
-        .map(|l| compiled.iter().any(|c| has_match(l, c)))
-        .collect();
-    let all_match: Vec<bool> = result
-        .iter()
-        .map(|l| compiled.iter().all(|c| has_match(l, c)))
-        .collect();
-
-    // Apply -d / -D filtering
-    if global.delete_no_match || global.delete_not_all {
-        result = result
-            .into_iter()
-            .enumerate()
-            .filter(|(idx, _)| {
-                if global.delete_no_match && !any_match[*idx] {
-                    return false;
-                }
-                if global.delete_not_all && !all_match[*idx] {
-                    return false;
-                }
-                true
-            })
-            .map(|(_, l)| l)
-            .collect();
-
-        // Recompute match flags after filter
-        let any_match2: Vec<bool> = result
+    pub fn process(&self, lines: &mut Vec<String>) -> Vec<String> {
+        // Compile patterns once
+        let engine = &self.cmd.global.engine;
+        let compiled: Vec<Option<CompiledRegex>> = self
+            .cmd
+            .patterns
             .iter()
-            .map(|l| compiled.iter().any(|c| has_match(l, c)))
-            .collect();
-        let all_match2: Vec<bool> = result
-            .iter()
-            .map(|l| compiled.iter().all(|c| has_match(l, c)))
+            .map(|p| compile_pattern(p, engine).ok())
             .collect();
 
-        // Re-apply alignment
-        for cspec in &compiled {
-            align_pass(&mut result, global, cspec, &any_match2, &all_match2);
+        // Compile word-bound patterns
+        let word_bounds: Vec<Option<CompiledRegex>> = self
+            .cmd
+            .patterns
+            .iter()
+            .map(|p| compile_word_bound(p, engine))
+            .collect();
+
+        // For each pattern, find matches in each line
+        // Structure: matches_by_pattern[pat_idx][line_idx] = Vec<SlotMatch>
+        let mut matches_by_pattern: Vec<Vec<Vec<SlotMatch>>> = Vec::new();
+
+        for (pi, pattern) in self.cmd.patterns.iter().enumerate() {
+            let re = match &compiled[pi] {
+                Some(r) => r,
+                None => {
+                    matches_by_pattern.push(vec![vec![]; lines.len()]);
+                    continue;
+                }
+            };
+            let wb = word_bounds[pi].as_ref();
+            let ctx_re = compile_context(pattern, engine);
+
+            let mut pat_matches: Vec<Vec<SlotMatch>> = Vec::new();
+            for line in lines.iter() {
+                let ms = find_matches_in_line(line, re, wb, pattern, ctx_re.as_ref(), engine);
+                pat_matches.push(ms);
+            }
+            matches_by_pattern.push(pat_matches);
         }
-    } else {
-        for cspec in &compiled {
-            align_pass(&mut result, global, cspec, &any_match, &all_match);
+
+        // Determine which lines match
+        let line_has_any: Vec<bool> = (0..lines.len())
+            .map(|li| matches_by_pattern.iter().any(|pm| !pm[li].is_empty()))
+            .collect();
+
+        let line_has_all: Vec<bool> = (0..lines.len())
+            .map(|li| matches_by_pattern.iter().all(|pm| !pm[li].is_empty()))
+            .collect();
+
+        // Apply global filter: -g means only align lines where ALL patterns match
+        // -d / -D deletes
+        // Build output
+        let mut output: Vec<String> = Vec::new();
+
+        // For each pattern, compute per-column alignment offsets
+        // We process patterns in order; after each pass, lines are modified.
+        // We need to track the accumulated mutations per line.
+        // Strategy: work with a mutable Vec of (line_chars, offset_map) and apply per pattern.
+
+        // Simpler approach: build a "working" set of lines, apply each pattern in sequence.
+        let mut working: Vec<Option<String>> = lines.iter().cloned().map(Some).collect();
+
+        for (pi, pattern) in self.cmd.patterns.iter().enumerate() {
+            // Collect matches for this pattern across lines
+            let pat_line_matches = &matches_by_pattern[pi];
+
+            // Determine which lines are active for this pattern
+            // Lines are active if: they have a match, and global constraints are satisfied
+            let active: Vec<bool> = (0..lines.len())
+                .map(|li| {
+                    if working[li].is_none() {
+                        return false;
+                    }
+                    if self.cmd.global.global_match_all && !line_has_all[li] {
+                        return false;
+                    }
+                    !pat_line_matches[li].is_empty()
+                })
+                .collect();
+
+            // Collect the nth match for alignment (we align by occurrence index)
+            // Max occurrences across active lines
+            let max_occ = pat_line_matches
+                .iter()
+                .enumerate()
+                .filter(|(li, _)| active[*li])
+                .map(|(_, ms)| ms.len())
+                .max()
+                .unwrap_or(0);
+
+            let repeat_limit = pattern.repeat.unwrap_or(usize::MAX);
+            let occ_count = max_occ.min(repeat_limit);
+
+            for occ in 0..occ_count {
+                // For this occurrence, compute the column positions
+                // Column = position of the match start (with context adjustment)
+                let col_positions: Vec<Option<usize>> = (0..lines.len())
+                    .map(|li| {
+                        if !active[*&li] {
+                            return None;
+                        }
+                        let ms = &pat_line_matches[li];
+                        ms.get(occ).map(|m| {
+                            let line = working[li].as_ref().unwrap();
+                            let ctx_start = m.context_start.unwrap_or(m.start);
+                            // Visual width of prefix up to context start or match start
+                            let prefix = &line[..ctx_start];
+                            UnicodeWidthStr::width(prefix)
+                        })
+                    })
+                    .collect();
+
+                // Maximum column among active lines (with left padding)
+                let max_col = col_positions.iter().filter_map(|c| *c).max().unwrap_or(0);
+
+                // Apply alignment to each active line for this occurrence
+                for li in 0..lines.len() {
+                    if let Some(target_col) = col_positions[li] {
+                        let line = working[li].take().unwrap();
+                        let ms = &pat_line_matches[li];
+                        if let Some(slot) = ms.get(occ) {
+                            let new_line = align_match(&line, slot, target_col, max_col, pattern);
+                            working[li] = Some(new_line);
+                        } else {
+                            working[li] = Some(line);
+                        }
+                    }
+                }
+            }
         }
+
+        // Apply deletion flags and collect output
+        for (li, line_opt) in working.into_iter().enumerate() {
+            let line = match line_opt {
+                Some(l) => l,
+                None => continue,
+            };
+
+            if self.cmd.global.delete_no_match && !line_has_any[li] {
+                continue;
+            }
+            if self.cmd.global.delete_missing_match && !line_has_all[li] {
+                continue;
+            }
+
+            output.push(line);
+        }
+
+        output
+    }
+}
+
+/// Find all (optionally word-bounded) matches of `re` in `line`
+fn find_matches_in_line(
+    line: &str,
+    re: &CompiledRegex,
+    word_bound: Option<&CompiledRegex>,
+    pattern: &AlignPattern,
+    ctx_re: Option<&CompiledRegex>,
+    engine: &RegexEngine,
+) -> Vec<SlotMatch> {
+    let raw_matches = re.find_all(line);
+    let repeat_limit = pattern.repeat.unwrap_or(usize::MAX);
+
+    let mut result = Vec::new();
+    let mut last_end = 0usize;
+
+    for m in raw_matches.into_iter().take(repeat_limit) {
+        // Word boundary check
+        if !pattern.no_word_bound {
+            if let Some(wb) = word_bound {
+                if !check_word_bound(line, m.start, m.end, wb) {
+                    continue;
+                }
+            }
+        }
+
+        // Context
+        let context_start = find_context_start(line, last_end, m.start, pattern, ctx_re);
+
+        result.push(SlotMatch {
+            start: m.start,
+            end: m.end,
+            context_start,
+        });
+        last_end = m.end;
     }
 
     result
 }
 
-// ---------------------------------------------------------------------------
-// Compiled representation
-// ---------------------------------------------------------------------------
-
-struct CompiledSpec {
-    regex: Regex,
-    flags: PatternFlags,
-    context_regex: Option<Regex>,
-    /// original text for word-bound wrapping
-    word_bound: bool,
-}
-
-fn compile_spec(spec: &PatternSpec) -> CompiledSpec {
-    let word_bound = spec.flags.word_bound.unwrap_or(false);
-    let regex = build_regex(&spec.kind, word_bound);
-    let context_regex = if spec.flags.context_whole {
-        Some(Regex::new("^.*$").unwrap())
+/// Check that the match at [start, end) in `line` is delimited by word boundaries
+fn check_word_bound(line: &str, start: usize, end: usize, wb: &CompiledRegex) -> bool {
+    // Before the match: either start of string or boundary char precedes it
+    let before_ok = if start == 0 {
+        true
     } else {
-        spec.flags.context.as_ref().map(|ck| build_regex(ck, false))
-    };
-    CompiledSpec {
-        regex,
-        flags: spec.flags.clone(),
-        context_regex,
-        word_bound,
-    }
-}
-
-fn build_regex(kind: &PatternKind, word_bound: bool) -> Regex {
-    match kind {
-        PatternKind::Regex { source, flags } => {
-            let mut pattern = source.clone();
-            // handle inline flags
-            let mut prefix = "(?".to_string();
-            let mut has_flags = false;
-            for ch in flags.chars() {
-                match ch {
-                    'i' => {
-                        prefix.push('i');
-                        has_flags = true;
-                    }
-                    's' => {
-                        prefix.push('s');
-                        has_flags = true;
-                    }
-                    'x' => {
-                        prefix.push('x');
-                        has_flags = true;
-                    }
-                    'm' => {
-                        prefix.push('m');
-                        has_flags = true;
-                    }
-                    _ => {}
-                }
-            }
-            if has_flags {
-                prefix.push(')');
-                pattern = format!("{prefix}{pattern}");
-            }
-            Regex::new(&pattern).unwrap_or_else(|e| {
-                eprintln!("align: invalid regex /{source}/{flags}: {e}");
-                Regex::new("(?!x)x").unwrap() // never-matching sentinel
-            })
+        let prev_char_end = start;
+        // find last char boundary before start
+        let mut prev_start = prev_char_end - 1;
+        while prev_start > 0 && !line.is_char_boundary(prev_start) {
+            prev_start -= 1;
         }
-        PatternKind::Literal(s) => {
-            let escaped = fancy_regex::escape(s);
-            let pat = if word_bound {
-                format!(r"(?<!\w){escaped}(?!\w)")
-            } else {
-                escaped.into_owned()
-            };
-            Regex::new(&pat).unwrap_or_else(|e| {
-                eprintln!("align: failed to compile literal pattern {s:?}: {e}");
-                Regex::new("(?!x)x").unwrap()
-            })
-        }
-    }
-}
-
-fn has_match(line: &str, cspec: &CompiledSpec) -> bool {
-    cspec.regex.is_match(line).unwrap_or(false)
-}
-
-// ---------------------------------------------------------------------------
-// One alignment pass for one compiled spec
-// ---------------------------------------------------------------------------
-
-fn align_pass(
-    lines: &mut Vec<String>,
-    global: &GlobalFlags,
-    cspec: &CompiledSpec,
-    any_match: &[bool],
-    all_match: &[bool],
-) {
-    let flags = &cspec.flags;
-    let fill = flags.fill.unwrap_or(' ');
-    let pad_left = flags.pad_left.unwrap_or(1);
-    let pad_right = flags.pad_right.unwrap_or(1);
-
-    let max_repeats = match &flags.repeat {
-        Repeat::Count(n) => *n,
-        Repeat::Infinite => usize::MAX,
+        let prev_char = &line[prev_start..prev_char_end];
+        wb.find_at(prev_char, 0).is_some()
     };
 
-    // We align one "occurrence index" at a time (first match across all lines,
-    // then second match, etc.)
-    for occurrence in 0..max_repeats {
-        // For each line, find the nth occurrence and record its byte start and
-        // the byte start of the *padded* prefix (after trimming existing padding).
-        let mut match_infos: Vec<Option<MatchInfo>> = lines
-            .iter()
-            .enumerate()
-            .map(|(idx, line)| {
-                // Respect -g: skip lines that don't have all matches
-                if global.only_all_match && !all_match[idx] {
-                    return None;
-                }
-                find_nth_match(line, &cspec.regex, occurrence, cspec, pad_left, pad_right)
-            })
-            .collect();
-
-        // Check if any line has a match at this occurrence
-        if match_infos.iter().all(|m| m.is_none()) {
-            break;
+    // After the match: either end of string or boundary char follows
+    let after_ok = if end >= line.len() {
+        true
+    } else {
+        let mut next_end = end + 1;
+        while next_end <= line.len() && !line.is_char_boundary(next_end) {
+            next_end += 1;
         }
+        let next_char = &line[end..next_end];
+        wb.find_at(next_char, 0).is_some()
+    };
 
-        // Compute the target column (maximum left-side width among matching lines).
-        // "left-side width" = the visual column where the match starts (after trimming
-        // any existing padding we injected).
-        let max_left = match_infos
-            .iter()
-            .filter_map(|m| m.as_ref())
-            .map(|m| m.left_width)
-            .max()
-            .unwrap_or(0);
-
-        // Also figure out the match text width for right-align.
-        let max_match_width = match_infos
-            .iter()
-            .filter_map(|m| m.as_ref())
-            .map(|m| m.match_width)
-            .max()
-            .unwrap_or(0);
-
-        // Rewrite each line
-        for (idx, info) in match_infos.iter().enumerate() {
-            let info = match info {
-                Some(i) => i,
-                None => continue,
-            };
-
-            let line = &lines[idx];
-            let new_line = rewrite_line(
-                line,
-                info,
-                max_left,
-                max_match_width,
-                fill,
-                pad_left,
-                pad_right,
-                flags.left_align,
-            );
-            lines[idx] = new_line;
-        }
-    }
+    before_ok && after_ok
 }
 
-// ---------------------------------------------------------------------------
-// Match info
-// ---------------------------------------------------------------------------
-
-struct MatchInfo {
-    /// byte offset of the start of the (trimmed) prefix region
-    prefix_byte_start: usize,
-    /// byte offset where the match text itself starts
-    match_byte_start: usize,
-    /// byte offset where the match text ends
-    match_byte_end: usize,
-    /// visual width of the left side (prefix_byte_start..match_byte_start)
-    left_width: usize,
-    /// visual width of the matched text
-    match_width: usize,
-    /// if context is used: byte offset within [prefix_byte_start..match_byte_start]
-    /// where the context alignment target starts
-    context_offset: Option<usize>,
-}
-
-/// Find the `n`th (0-indexed) match of `regex` in `line`.
-/// Returns None if no such match.
-fn find_nth_match(
+/// Determine the context start (for -c and -C flags)
+fn find_context_start(
     line: &str,
-    regex: &Regex,
-    n: usize,
-    cspec: &CompiledSpec,
-    pad_left: usize,
-    pad_right: usize,
-) -> Option<MatchInfo> {
-    let fill = cspec.flags.fill.unwrap_or(' ');
+    last_end: usize,
+    match_start: usize,
+    pattern: &AlignPattern,
+    ctx_re: Option<&CompiledRegex>,
+) -> Option<usize> {
+    if pattern.context_whole {
+        // -C: whole slice between last match end and current match start
+        return Some(last_end);
+    }
 
-    // Collect all matches
-    let mut count = 0;
-    let mut search_start = 0;
-
-    loop {
-        let m = regex.find_from_pos(line, search_start).ok()??;
-        if count == n {
-            // We found our match. Now strip existing padding around it so that
-            // re-runs are idempotent.
-            let (prefix_byte_start, match_start, match_end) =
-                strip_padding(line, m.start(), m.end(), fill, pad_left, pad_right);
-
-            let prefix = &line[prefix_byte_start..match_start];
-            let left_width = visual_width(prefix);
-            let match_width = visual_width(&line[match_start..match_end]);
-
-            // context: find sub-pattern in prefix
-            let context_offset = if let Some(ctx_re) = &cspec.context_regex {
-                let prefix_slice = &line[prefix_byte_start..match_start];
-                ctx_re
-                    .find(prefix_slice)
-                    .ok()
-                    .flatten()
-                    .map(|cm| prefix_byte_start + cm.start())
-            } else {
-                None
-            };
-
-            return Some(MatchInfo {
-                prefix_byte_start,
-                match_byte_start: match_start,
-                match_byte_end: match_end,
-                left_width,
-                match_width,
-                context_offset,
-            });
-        }
-        count += 1;
-        // Advance past this match (at least 1 to avoid infinite loops on zero-width matches)
-        search_start = if m.end() > m.start() {
-            m.end()
-        } else {
-            m.start() + 1
-        };
-        if search_start > line.len() {
-            break;
+    if let Some(ctx) = ctx_re {
+        // -c pattern: find the pattern in the slice [last_end..match_start]
+        let slice = &line[last_end..match_start];
+        if let Some(cm) = ctx.find_at(slice, 0) {
+            return Some(last_end + cm.start);
         }
     }
 
     None
 }
 
-/// Strip the padding that `align` itself added on a previous run so that
-/// repeated runs are idempotent.
-///
-/// Returns (prefix_start, match_start, match_end) after stripping.
-fn strip_padding(
+/// Apply padding/alignment to make `slot` in `line` land at `target_col`
+fn align_match(
     line: &str,
-    match_start: usize,
-    match_end: usize,
-    fill: char,
-    pad_left: usize,
-    pad_right: usize,
-) -> (usize, usize, usize) {
-    // Strip fill chars to the left of match_start (but not more than pad_left each run,
-    // because we can't tell how many were original). Actually we strip ALL consecutive fill
-    // chars immediately before the match – the aligner will re-add the correct amount.
-    let before = &line[..match_start];
-    let left_stripped = before.trim_end_matches(fill);
-    let new_match_start = left_stripped.len();
-
-    // Strip fill chars to the right of match_end
-    let after = &line[match_end..];
-    let right_stripped = after.trim_start_matches(fill);
-    let stripped_right = after.len() - right_stripped.len();
-    let new_match_end = match_end - stripped_right; // no: end stays but after shifts
-
-    // We return the (prefix_start=0, new_match_start, match_end without trailing fill)
-    // "prefix_start" is always 0 here since the prefix is everything before the match.
-    (0, new_match_start, match_end)
-}
-
-// ---------------------------------------------------------------------------
-// Rewrite a line to put the match at the target column
-// ---------------------------------------------------------------------------
-
-#[allow(clippy::too_many_arguments)]
-fn rewrite_line(
-    line: &str,
-    info: &MatchInfo,
-    target_left: usize,
-    max_match_width: usize,
-    fill: char,
-    pad_left: usize,
-    pad_right: usize,
-    left_align: bool,
+    slot: &SlotMatch,
+    current_col: usize,
+    target_col: usize,
+    pattern: &AlignPattern,
 ) -> String {
-    // Split line into: head | gap | match_text | tail
-    let head = &line[info.prefix_byte_start..info.match_byte_start];
-    let match_text = &line[info.match_byte_start..info.match_byte_end];
-    let tail = &line[info.match_byte_end..];
+    // The anchor position: context start if set, else match start
+    let anchor = slot.context_start.unwrap_or(slot.start);
 
-    let head_vis = visual_width(head);
-    let match_vis = visual_width(match_text);
+    // We need to insert (target_col - current_col) filler chars before `anchor`
+    let delta = target_col as isize - current_col as isize;
 
-    // How many fill chars to insert/remove before the match so that
-    // the match starts at target_left + pad_left.
-    let desired_match_col = target_left + pad_left;
-    let new_gap = if desired_match_col >= head_vis {
-        desired_match_col - head_vis
+    let fill = pattern.fill;
+    let pad_left = pattern.pad_left;
+    let pad_right = pattern.pad_right;
+
+    let mut result = String::new();
+
+    if delta >= 0 {
+        // Insert `delta` filler chars at anchor
+        result.push_str(&line[..anchor]);
+        for _ in 0..delta {
+            result.push(fill);
+        }
+        // Ensure left padding before the match (if anchor == match start)
+        // and right padding after match end
+        if anchor == slot.start {
+            // Ensure pad_left spaces before match
+            let existing_left = count_trailing_fill(&result, fill);
+            if existing_left < pad_left {
+                for _ in existing_left..pad_left {
+                    result.push(fill);
+                }
+            }
+            result.push_str(&line[slot.start..slot.end]);
+            // Right padding
+            ensure_right_padding(&mut result, &line[slot.end..], fill, pad_right);
+        } else {
+            // Context case: just append remainder
+            result.push_str(&line[anchor..]);
+        }
     } else {
-        0
-    };
+        // Need to trim chars at anchor to move anchor left
+        let trim_count = (-delta) as usize;
+        // Trim from left of anchor position (remove spaces before anchor)
+        let before = &line[..anchor];
+        let trimmed_before = trim_end_by(before, fill, trim_count);
+        result.push_str(trimmed_before);
 
-    // Align the match text itself (for right-align, pad so all matches are the same width)
-    let (match_prefix, match_suffix) = if !left_align && max_match_width > match_vis {
-        let diff = max_match_width - match_vis;
-        (fill.to_string().repeat(diff), String::new())
-    } else {
-        (String::new(), String::new())
-    };
+        if anchor == slot.start {
+            let existing_left = count_trailing_fill(&result, fill);
+            if existing_left < pad_left {
+                for _ in existing_left..pad_left {
+                    result.push(fill);
+                }
+            }
+            result.push_str(&line[slot.start..slot.end]);
+            ensure_right_padding(&mut result, &line[slot.end..], fill, pad_right);
+        } else {
+            result.push_str(&line[anchor..]);
+        }
+    }
 
-    let gap_str = fill.to_string().repeat(new_gap);
-    let right_pad_str = fill.to_string().repeat(pad_right);
-
-    // head already has everything up to (but not including) the old padding
-    let prefix = &line[..info.prefix_byte_start];
-
-    format!("{prefix}{head}{gap_str}{match_prefix}{match_text}{match_suffix}{right_pad_str}{tail}")
+    result
 }
 
-// ---------------------------------------------------------------------------
-// Utility: visual column width (handles multi-byte / wide chars)
-// ---------------------------------------------------------------------------
+fn count_trailing_fill(s: &str, fill: char) -> usize {
+    s.chars().rev().take_while(|&c| c == fill).count()
+}
 
-fn visual_width(s: &str) -> usize {
-    UnicodeWidthStr::width(s)
+fn trim_end_by<'a>(s: &'a str, fill: char, n: usize) -> &'a str {
+    let mut count = 0;
+    let mut end = s.len();
+    for c in s.chars().rev() {
+        if count >= n {
+            break;
+        }
+        if c == fill {
+            end -= c.len_utf8();
+            count += 1;
+        } else {
+            break;
+        }
+    }
+    &s[..end]
+}
+
+fn ensure_right_padding(result: &mut String, rest: &str, fill: char, pad_right: usize) {
+    let existing_right = rest.chars().take_while(|&c| c == fill).count();
+    if existing_right < pad_right {
+        for _ in existing_right..pad_right {
+            result.push(fill);
+        }
+        // Skip the existing fill chars in rest
+        let skip_bytes: usize = rest
+            .chars()
+            .take(existing_right)
+            .map(|c| c.len_utf8())
+            .sum();
+        result.push_str(&rest[skip_bytes..]);
+    } else {
+        result.push_str(rest);
+    }
+}
+
+fn compile_pattern(pattern: &AlignPattern, engine: &RegexEngine) -> Result<CompiledRegex, String> {
+    if pattern.is_regex {
+        CompiledRegex::compile(&pattern.raw, &pattern.regex_flags, engine)
+    } else {
+        compile_literal(&pattern.raw, engine)
+    }
+}
+
+fn compile_word_bound(pattern: &AlignPattern, engine: &RegexEngine) -> Option<CompiledRegex> {
+    if pattern.no_word_bound {
+        return None;
+    }
+    let wb_src = pattern.word_bound.as_deref().unwrap_or(r"[^A-Za-z0-9_]");
+    // Strip outer / / if present
+    let wb_src = if wb_src.starts_with('/') && wb_src.ends_with('/') {
+        &wb_src[1..wb_src.len() - 1]
+    } else {
+        wb_src
+    };
+    CompiledRegex::compile(wb_src, "", engine).ok()
+}
+
+fn compile_context(pattern: &AlignPattern, engine: &RegexEngine) -> Option<CompiledRegex> {
+    if pattern.context_whole {
+        return None; // handled inline
+    }
+    let ctx_src = pattern.context.as_deref()?;
+    // Strip outer / / delimiters if present
+    let (src, flags) = if ctx_src.starts_with('/') {
+        let inner = &ctx_src[1..];
+        if let Some(end) = inner.rfind('/') {
+            (&inner[..end], &inner[end + 1..])
+        } else {
+            (inner, "")
+        }
+    } else {
+        (ctx_src, "")
+    };
+    CompiledRegex::compile(src, flags, engine).ok()
 }
