@@ -1,0 +1,17 @@
+[package]
+name = "align"
+version = "0.1.0"
+edition = "2021"
+description = "A CLI tool that aligns matched characters across lines by inserting/trimming filler characters"
+authors = []
+
+[[bin]]
+name = "align"
+path = "src/main.rs"
+
+[dependencies]
+fancy-regex = "0.13"
+directories = "5"
+toml = "0.8"
+serde = { version = "1", features = ["derive"] }
+unicode-width = "0.1"
