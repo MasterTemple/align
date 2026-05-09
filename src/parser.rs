@@ -116,9 +116,16 @@ fn tokenize(args: &[String]) -> Vec<Token> {
             tokens.push(tok);
             i += consumed;
         } else if chars[i] == '/' {
-            // Regex pattern
+            // Regex pattern — but guard against bare `/` (incomplete) and `//` (empty).
+            // An empty pattern would match everywhere; treat as literal slash(es).
             let (pat, flags, consumed) = parse_regex(&chars, i);
-            tokens.push(Token::Regex(pat, flags));
+            if pat.is_empty() && flags.is_empty() {
+                // `//` or bare `/` at end → literal slash(es); emit the raw chars consumed
+                let raw: String = chars[i..i + consumed].iter().collect();
+                tokens.push(Token::Literal(raw));
+            } else {
+                tokens.push(Token::Regex(pat, flags));
+            }
             i += consumed;
         } else if chars[i] == '"' || chars[i] == '\'' || chars[i] == '`' {
             // Quoted literal
@@ -199,6 +206,20 @@ fn parse_flag(chars: &[char], start: usize) -> (Token, usize) {
 
     if !is_known_flag {
         // Reconstruct the literal: the '-' plus whatever followed
+        let literal: String = std::iter::once('-')
+            .chain(chars[flag_start..i].iter().copied())
+            .collect();
+        return (Token::Literal(literal), i - start);
+    }
+
+    // If flag_name contains non-alphabetic chars (e.g. ">" from "->"),
+    // it's not a real flag — treat the whole token as a literal.
+    let is_known_flag = matches!(
+        flag_name.as_str(),
+        "g" | "d" | "D" | "E" | "f" | "p" | "pl" | "pr" | "l" | "r" | "W" | "w" | "n" | "c" | "C"
+    ) || flag_name.chars().all(|c| c.is_ascii_alphabetic());
+
+    if !is_known_flag {
         let literal: String = std::iter::once('-')
             .chain(chars[flag_start..i].iter().copied())
             .collect();

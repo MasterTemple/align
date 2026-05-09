@@ -126,15 +126,33 @@ let another_var = 2; # another comment
 
 Bug (likely from my program):
 - If I try `'/'` or `'//'` to align comments, I get the following
+
 Input:
+
 ```
-let some_var = 1; // a comment
+let some_var = 1;    // a comment
 let another_var = 2; // another comment
 ```
+
 Output:
+
 ```
   l  e  t  s  o  m  e  _  v  a  r  =  1  ; // a comment
   l  e  t  a  n  o  t  h  e  r  _  v  a  r = 2; // another comment
 ```
 
 echo "let some_var = 1; # a commentlet another_var = 2; # another comment" | align '#'
+
+---
+
+Thanks for the fix, it now works for `align '//'`, but not for `align '/'`
+which outputs
+
+let some_var = 1;    / / a comment
+let another_var = 2; / / another comment
+
+ACTUALLY That is correct, because `/` has a default pad of 1
+
+---
+
+

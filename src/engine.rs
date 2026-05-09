@@ -80,15 +80,30 @@ impl CompiledRegex {
         while pos <= text.len() {
             match self.find_at(text, pos) {
                 Some(m) => {
-                    let end = if m.end > m.start { m.end } else { m.start + 1 };
-                    results.push(m);
-                    pos = end;
+                    if m.end > m.start {
+                        // Normal non-empty match
+                        pos = m.end;
+                        results.push(m);
+                    } else {
+                        // Zero-length match: advance one char boundary to avoid infinite loop
+                        pos = next_char_boundary(text, m.start + 1);
+                        // Only push if the pattern genuinely matches here (not an artifact)
+                        // Zero-length matches are only useful for lookahead/behind patterns;
+                        // for our alignment use-case we skip them to avoid matching everywhere.
+                    }
                 }
                 None => break,
             }
         }
         results
     }
+}
+
+fn next_char_boundary(s: &str, mut pos: usize) -> usize {
+    while pos <= s.len() && !s.is_char_boundary(pos) {
+        pos += 1;
+    }
+    pos
 }
 
 fn build_fancy_pattern(pattern: &str, flags: &str) -> String {
