@@ -130,7 +130,8 @@ fn tokenize(args: &[String]) -> Vec<Token> {
                 tokens.push(Token::Regex(pat, flags));
             }
             i += consumed;
-        } else if chars[i] == '"' || chars[i] == '\'' || chars[i] == '`' {
+        // } else if chars[i] == '"' || chars[i] == '\'' || chars[i] == '`' {
+        } else if is_quote(chars[i]) {
             // Quoted literal
             let delim = chars[i];
             let (lit, consumed) = parse_quoted(&chars, i, delim);
@@ -266,8 +267,12 @@ pub fn parse_regex_or_lit(chars: &[char], engine: &RegexEngine) -> Result<Compil
         let (pat, flags, _) = parse_regex(chars, 0);
         CompiledRegex::compile(&pat, &flags, engine)
     } else {
-        let (lit, _) = parse_quoted(chars, 0, chars[0]);
-        compile_literal(&lit, engine)
+        if is_quote(chars[0]) {
+            let (lit, _) = parse_quoted(chars, 0, chars[0]);
+            compile_literal(&lit, engine)
+        } else {
+            compile_literal(&chars.iter().collect::<String>(), engine)
+        }
     }
 }
 
@@ -295,6 +300,9 @@ fn parse_regex(chars: &[char], start: usize) -> (String, String, usize) {
         i += 1;
     }
     (pat, flags, i - start)
+}
+fn is_quote(c: char) -> bool {
+    c == '"' || c == '\'' || c == '`'
 }
 
 fn parse_quoted(chars: &[char], start: usize, delim: char) -> (String, usize) {
@@ -397,6 +405,7 @@ fn parse_tokens(tokens: &[Token], config: &Config) -> Result<Command, String> {
             }
             Token::FlagVal(f, v) => {
                 match f.as_str() {
+                    // "g" => global.ignore = Some(v.clone()),
                     "g" => global.ignore = Some(v.clone()),
                     "E" => global.engine = RegexEngine::from_str(v),
                     "f" if !seen_pattern => {

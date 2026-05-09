@@ -71,6 +71,13 @@ impl Aligner {
             .as_ref()
             .and_then(|p| parse_regex_or_lit(&p.chars().collect::<Vec<char>>(), engine).ok());
 
+        // let keep_pat = self
+        //     .cmd
+        //     .global
+        //     .ignore
+        //     .as_ref()
+        //     .and_then(|p| parse_regex_or_lit(&p.chars().collect::<Vec<char>>(), engine).ok());
+
         let n = lines.len();
 
         // Presence check on ORIGINAL lines (for global flags only).
@@ -93,11 +100,12 @@ impl Aligner {
 
         let line_is_ignored: Vec<bool> = if let Some(pat) = ignore_pat {
             (0..n)
-                .map(|li| pat.find_one(&lines[li]).is_some())
+                .map(|li| !pat.find_one(&lines[li]).is_some())
                 .collect()
         } else {
             vec![false; n]
         };
+
         let line_has_any: Vec<bool> = (0..n)
             .map(|li| line_has_pat.iter().any(|pm| pm[li]))
             .collect();
