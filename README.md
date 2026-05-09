@@ -37,7 +37,7 @@ Lines are read from stdin. Patterns are matched in order; lines without any matc
 ### Literal Patterns
 
 Literals may be:
-- **Unquoted** (no spaces): `align =`
+- **Unquoted** (no spaces): `align =` (NOTE: Vim or the shell may treat certain characters like `;` or `#` specially, in that case, wrap with quotes)
 - **Quoted** with backtick, single, or double quote: `align '='`, `align "="`, `` align `=` ``
 - A `-` that doesn't match a flag is treated as a literal: `align ->`, `align --`
 

@@ -32,11 +32,19 @@ let another_var = 72.0;
 
 ---
 
-let some_var = 3.1; # a comment
-let another_var = 72.01; # another comment
+Command
 
 let some_var = 3.1; # a comment
 let another_var = 72.01; # another comment
+
+let some_var    =  3.1; # a comment
+let another_var = 72.01; # another comment
+
+let some_var = 3.1; // a comment
+let another_var = 72.01; // another comment
+
+let some_var = 3.1; // a comment
+let another_var = 72.01; // another comment
 
 hi 3 ok
 o 12 no
@@ -44,8 +52,8 @@ o 12 no
 
 select *
 from first_table
-join some_table T on T.asdfe=O.sdf30, -- some comment
-left join some_other_table O on O.b43 = T.jf81asfdsafadsf, -- another comment!
+     join some_table T       on T.asdfe = O.sdf30,           -- some comment
+left join some_other_table O on O.b43   = T.jf81asfdsafadsf, -- another comment!
 
 
 select *
@@ -97,3 +105,36 @@ select *
 from first_table
      join some_table       T on T.asdfe = O.sdf30,           -- some comment
 left join some_other_table O on O.b43   = T.jf81asfdsafadsf, -- another comment!
+
+---
+
+All the provided tests pass
+
+Here are some more test cases that don't work
+
+Command align align . -p 0 -c /\d+$/
+
+
+Interesting bug (maybe not from my progres):
+- I must use `'#'` in both Vim and my shell, if I don't wrap in quotes Vim does nothing, but my shell gives me an error telling me the usage
+- I have a similar thing when using `;` without quotes
+
+```
+let some_var = 1; # a comment
+let another_var = 2; # another comment
+```
+
+Bug (likely from my program):
+- If I try `'/'` or `'//'` to align comments, I get the following
+Input:
+```
+let some_var = 1; // a comment
+let another_var = 2; // another comment
+```
+Output:
+```
+  l  e  t  s  o  m  e  _  v  a  r  =  1  ; // a comment
+  l  e  t  a  n  o  t  h  e  r  _  v  a  r = 2; // another comment
+```
+
+echo "let some_var = 1; # a commentlet another_var = 2; # another comment" | align '#'
