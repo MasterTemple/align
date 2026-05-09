@@ -134,13 +134,23 @@ mod tests {
     }
 
     #[test]
-    fn test_global_match() {
+    fn test_global_keep_match() {
         // -e: only align lines where ALL patterns match; others pass through unchanged
         let out = run(&["-g", "y", "="], &["x = 1", "xy = 2", "xyz = 3"]);
         // All 3 lines returned (none deleted)
         assert_eq!(out.len(), 3);
         // The non-matching line is unchanged
         assert_eq!(out[0], "x = 1");
+    }
+
+    #[test]
+    fn test_global_ignore_match() {
+        // -e: only align lines where ALL patterns match; others pass through unchanged
+        let out = run(&["-v", "z", "="], &["x = 1", "xy = 2", "z = 3"]);
+        // All 3 lines returned (none deleted)
+        assert_eq!(out.len(), 3);
+        // The non-matching line is unchanged
+        assert_eq!(out[2], "z = 3");
     }
 
     // ── padding flags ─────────────────────────────────────────────────────────

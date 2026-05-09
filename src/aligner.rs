@@ -71,12 +71,12 @@ impl Aligner {
             .as_ref()
             .and_then(|p| parse_regex_or_lit(&p.chars().collect::<Vec<char>>(), engine).ok());
 
-        // let keep_pat = self
-        //     .cmd
-        //     .global
-        //     .ignore
-        //     .as_ref()
-        //     .and_then(|p| parse_regex_or_lit(&p.chars().collect::<Vec<char>>(), engine).ok());
+        let keep_pat = self
+            .cmd
+            .global
+            .keep
+            .as_ref()
+            .and_then(|p| parse_regex_or_lit(&p.chars().collect::<Vec<char>>(), engine).ok());
 
         let n = lines.len();
 
@@ -100,10 +100,18 @@ impl Aligner {
 
         let line_is_ignored: Vec<bool> = if let Some(pat) = ignore_pat {
             (0..n)
-                .map(|li| !pat.find_one(&lines[li]).is_some())
+                .map(|li| pat.find_one(&lines[li]).is_some())
                 .collect()
         } else {
             vec![false; n]
+        };
+
+        let line_is_kept: Vec<bool> = if let Some(pat) = keep_pat {
+            (0..n)
+                .map(|li| pat.find_one(&lines[li]).is_some())
+                .collect()
+        } else {
+            vec![true; n]
         };
 
         let line_has_any: Vec<bool> = (0..n)
@@ -127,7 +135,7 @@ impl Aligner {
             // Which lines participate in this pattern's alignment pass?
             let active: Vec<bool> = (0..n)
                 .map(|li| {
-                    if line_is_ignored[li] {
+                    if line_is_ignored[li] || !line_is_kept[li] {
                         return false;
                     }
                     if self.cmd.global.match_every && !line_has_all[li] {

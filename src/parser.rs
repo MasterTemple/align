@@ -53,8 +53,11 @@ impl AlignPattern {
 #[derive(Debug, Clone, Default)]
 pub struct GlobalFlags {
     /// Ignore lines that don't match this pattern
-    /// Like Vim's `:g`
+    /// Like Vim's `:v`
     pub ignore: Option<String>,
+    /// Only align lines that match this pattern
+    /// Like Vim's `:g`
+    pub keep: Option<String>,
     /// Only align lines where ALL patterns match
     pub match_every: bool,
     /// Delete lines with no match
@@ -174,7 +177,7 @@ fn parse_flag(chars: &[char], start: usize) -> (Token, usize) {
     // Flags that take a value argument
     let takes_value = matches!(
         flag_name.as_str(),
-        "f" | "p" | "pl" | "pr" | "n" | "w" | "c" | "E" | "g"
+        "f" | "p" | "pl" | "pr" | "n" | "w" | "c" | "E" | "g" | "v"
     );
 
     if takes_value {
@@ -201,40 +204,12 @@ fn parse_flag(chars: &[char], start: usize) -> (Token, usize) {
         }
     }
 
-    // If flag_name contains non-alphabetic chars (e.g. ">", "->"),
-    // it's not a real flag — treat the whole token as a literal.
-    let is_known_flag = matches!(
-        flag_name.as_str(),
-        "g" | "e"
-            | "d"
-            | "D"
-            | "E"
-            | "f"
-            | "p"
-            | "pl"
-            | "pr"
-            | "l"
-            | "r"
-            | "W"
-            | "w"
-            | "n"
-            | "c"
-            | "C"
-    ) || flag_name.chars().all(|c| c.is_ascii_alphabetic());
-
-    if !is_known_flag {
-        // Reconstruct the literal: the '-' plus whatever followed
-        let literal: String = std::iter::once('-')
-            .chain(chars[flag_start..i].iter().copied())
-            .collect();
-        return (Token::Literal(literal), i - start);
-    }
-
     // If flag_name contains non-alphabetic chars (e.g. ">" from "->"),
     // it's not a real flag — treat the whole token as a literal.
     let is_known_flag = matches!(
         flag_name.as_str(),
-        "g" | "e"
+        "g" | "v"
+            | "e"
             | "d"
             | "D"
             | "E"
@@ -405,8 +380,8 @@ fn parse_tokens(tokens: &[Token], config: &Config) -> Result<Command, String> {
             }
             Token::FlagVal(f, v) => {
                 match f.as_str() {
-                    // "g" => global.ignore = Some(v.clone()),
-                    "g" => global.ignore = Some(v.clone()),
+                    "g" => global.keep = Some(v.clone()),
+                    "v" => global.ignore = Some(v.clone()),
                     "E" => global.engine = RegexEngine::from_str(v),
                     "f" if !seen_pattern => {
                         g_fill = v.chars().next().unwrap_or(' ');

@@ -61,13 +61,14 @@ Supported regex flags: `i` (case-insensitive), `s` (dot-all), `m` (multiline).
 
 These apply to the entire command and must come before any pattern:
 
-| Flag          | Description                                                     |
-|---------------|-----------------------------------------------------------------|
-| `-g {pat}`          | Only align lines where this pattern matches (like Vim's `:g`) |
-| `-e`          | Only align lines where **every** patterns match                   |
-| `-d`          | Delete lines with **no** match                                  |
-| `-D`          | Delete lines that don't have **every** match                    |
-| `-E {engine}` | Set regex engine: `fancy_regex` (default) or `regress`          |
+| Flag          | Description                                                             |
+|---------------|-------------------------------------------------------------------------|
+| `-g {pat}`    | Only align lines where this pattern matches (like Vim's `:g`)           |
+| `-v {pat}`    | Only align lines where this pattern **doesn't** match (like Vim's `:v`) |
+| `-e`          | Only align lines where **every** patterns match                         |
+| `-d`          | Delete lines with **no** match                                          |
+| `-D`          | Delete lines that don't have **every** match                            |
+| `-E {engine}` | Set regex engine: `fancy_regex` (default) or `regress`                  |
 
 ---
 
@@ -75,19 +76,19 @@ These apply to the entire command and must come before any pattern:
 
 These follow immediately after their pattern:
 
-| Flag | Description |
-|------|-------------|
+| Flag        | Description                                          |
+|-------------|------------------------------------------------------|
 | `-f {char}` | Filler character for this alignment (default: space) |
-| `-p {n}` | Padding on both sides of the match |
-| `-pl {n}` | Left padding |
-| `-pr {n}` | Right padding |
-| `-l` | Left-align (default) |
-| `-r` | Right-align |
-| `-w {pat}` | Word-boundary delimiter (default: `/[^A-Za-z0-9_]/`) |
-| `-W` | Disable word-boundary checking |
-| `-n {n\|*}` | Repeat this pattern `n` times (`*` = unlimited) |
-| `-c {pat}` | Context pattern — aligns the slice before the match |
-| `-C` | Use the entire slice before the match as context |
+| `-p {n}`    | Padding on both sides of the match                   |
+| `-pl {n}`   | Left padding                                         |
+| `-pr {n}`   | Right padding                                        |
+| `-l`        | Left-align (default)                                 |
+| `-r`        | Right-align                                          |
+| `-w {pat}`  | Word-boundary delimiter (default: `/[^A-Za-z0-9_]/`) |
+| `-W`        | Disable word-boundary checking                       |
+| `-n {n\|*}` | Repeat this pattern `n` times (`*` = unlimited)      |
+| `-c {pat}`  | Context pattern — aligns the slice before the match  |
+| `-C`        | Use the entire slice before the match as context     |
 
 **Flags before any pattern** override defaults for all patterns.
 
@@ -201,22 +202,22 @@ context = '/\d+$/'
 
 ### Per-pattern config keys
 
-| Key | Type | Description |
-|-----|------|-------------|
-| `fill` | char | Filler character |
-| `pad` | int or `{ left, right }` | Padding |
-| `align` | `"left"` or `"right"` | Alignment direction |
-| `word` | string | Word-boundary pattern |
-| `context` | string | Context pattern |
+| Key       | Type                     | Description           |
+|-----------|--------------------------|-----------------------|
+| `fill`    | char                     | Filler character      |
+| `pad`     | int or `{ left, right }` | Padding               |
+| `align`   | `"left"` or `"right"`    | Alignment direction   |
+| `word`    | string                   | Word-boundary pattern |
+| `context` | string                   | Context pattern       |
 
 ---
 
 ## Regex Engines
 
-| Engine | Crate | Notes |
-|--------|-------|-------|
+| Engine        | Crate                                               | Notes                                     |
+|---------------|-----------------------------------------------------|-------------------------------------------|
 | `fancy_regex` | [fancy_regex](https://crates.io/crates/fancy_regex) | Default. Supports lookaheads/lookbehinds. |
-| `regress` | [regress](https://crates.io/crates/regress) | ES2021-compatible. |
+| `regress`     | [regress](https://crates.io/crates/regress)         | ES2021-compatible.                        |
 
 Switch engines:
 
