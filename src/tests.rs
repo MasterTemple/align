@@ -6,8 +6,11 @@ mod tests {
 
     fn run(args: &[&str], input: &[&str]) -> Vec<String> {
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
+        dbg!(&args);
         let config = Config::default();
+        dbg!(&config);
         let cmd = parse_args(&args, &config).expect("parse failed");
+        dbg!(&cmd);
         let aligner = Aligner::new(cmd);
         let mut lines: Vec<String> = input.iter().map(|s| s.to_string()).collect();
         aligner.process(&mut lines)
@@ -121,13 +124,23 @@ mod tests {
     }
 
     #[test]
-    fn test_global_match_all() {
-        // -g: only align lines where ALL patterns match; others pass through unchanged
-        let out = run(&["-g", "=", ":"], &["a = 1: x", "b = 2", "c = 3: z"]);
+    fn test_match_every() {
+        // -e: only align lines where ALL patterns match; others pass through unchanged
+        let out = run(&["-e", "=", ":"], &["a = 1: x", "b = 2", "c = 3: z"]);
         // All 3 lines returned (none deleted)
         assert_eq!(out.len(), 3);
         // The non-matching line is unchanged
         assert_eq!(out[1], "b = 2");
+    }
+
+    #[test]
+    fn test_global_match() {
+        // -e: only align lines where ALL patterns match; others pass through unchanged
+        let out = run(&["-g", "y", "="], &["x = 1", "xy = 2", "xyz = 3"]);
+        // All 3 lines returned (none deleted)
+        assert_eq!(out.len(), 3);
+        // The non-matching line is unchanged
+        assert_eq!(out[0], "x = 1");
     }
 
     // ── padding flags ─────────────────────────────────────────────────────────

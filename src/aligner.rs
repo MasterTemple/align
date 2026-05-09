@@ -1,7 +1,7 @@
 use unicode_width::UnicodeWidthStr;
 
 use crate::engine::{compile_literal, CompiledRegex, RegexEngine};
-use crate::parser::{AlignPattern, Command};
+use crate::parser::{parse_regex_or_lit, AlignPattern, Command};
 
 /// A match found in a line for a particular pattern slot
 #[derive(Debug, Clone)]
@@ -64,6 +64,13 @@ impl Aligner {
             .map(|p| compile_context(p, engine))
             .collect();
 
+        let ignore_pat = self
+            .cmd
+            .global
+            .ignore
+            .as_ref()
+            .and_then(|p| parse_regex_or_lit(&p.chars().collect::<Vec<char>>(), engine).ok());
+
         let n = lines.len();
 
         // Presence check on ORIGINAL lines (for global flags only).
@@ -84,6 +91,13 @@ impl Aligner {
             })
             .collect();
 
+        let line_is_ignored: Vec<bool> = if let Some(pat) = ignore_pat {
+            (0..n)
+                .map(|li| pat.find_one(&lines[li]).is_some())
+                .collect()
+        } else {
+            vec![false; n]
+        };
         let line_has_any: Vec<bool> = (0..n)
             .map(|li| line_has_pat.iter().any(|pm| pm[li]))
             .collect();
@@ -105,7 +119,10 @@ impl Aligner {
             // Which lines participate in this pattern's alignment pass?
             let active: Vec<bool> = (0..n)
                 .map(|li| {
-                    if self.cmd.global.global_match_all && !line_has_all[li] {
+                    if line_is_ignored[li] {
+                        return false;
+                    }
+                    if self.cmd.global.match_every && !line_has_all[li] {
                         return false;
                     }
                     line_has_pat[pi][li]
