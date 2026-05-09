@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::engine::RegexEngine;
+use crate::engine::{compile_literal, CompiledRegex, RegexEngine};
 
 /// A single alignment target (one pattern + its flags)
 #[derive(Debug, Clone)]
@@ -52,8 +52,11 @@ impl AlignPattern {
 /// Global flags that apply to the whole command
 #[derive(Debug, Clone, Default)]
 pub struct GlobalFlags {
+    /// Ignore lines that don't match this pattern
+    /// Like Vim's `:g`
+    pub ignore: Option<String>,
     /// Only align lines where ALL patterns match
-    pub global_match_all: bool,
+    pub match_every: bool,
     /// Delete lines with no match
     pub delete_no_match: bool,
     /// Delete lines that don't have ALL matches
@@ -86,7 +89,7 @@ pub fn parse_args(args: &[String], config: &Config) -> Result<Command, String> {
 /// A single token produced by the tokenizer
 #[derive(Debug, Clone)]
 enum Token {
-    /// A flag like `-l`, `-r`, `-g`, etc.
+    /// A flag like `-l`, `-r`, `-e`, `-g`, etc.
     Flag(String),
     /// A flag that takes a value: `-p 2` → FlagVal("p", "2")
     FlagVal(String, String),
@@ -170,7 +173,7 @@ fn parse_flag(chars: &[char], start: usize) -> (Token, usize) {
     // Flags that take a value argument
     let takes_value = matches!(
         flag_name.as_str(),
-        "f" | "p" | "pl" | "pr" | "n" | "w" | "c" | "E"
+        "f" | "p" | "pl" | "pr" | "n" | "w" | "c" | "E" | "g"
     );
 
     if takes_value {
@@ -201,7 +204,21 @@ fn parse_flag(chars: &[char], start: usize) -> (Token, usize) {
     // it's not a real flag — treat the whole token as a literal.
     let is_known_flag = matches!(
         flag_name.as_str(),
-        "g" | "d" | "D" | "E" | "f" | "p" | "pl" | "pr" | "l" | "r" | "W" | "w" | "n" | "c" | "C"
+        "g" | "e"
+            | "d"
+            | "D"
+            | "E"
+            | "f"
+            | "p"
+            | "pl"
+            | "pr"
+            | "l"
+            | "r"
+            | "W"
+            | "w"
+            | "n"
+            | "c"
+            | "C"
     ) || flag_name.chars().all(|c| c.is_ascii_alphabetic());
 
     if !is_known_flag {
@@ -216,7 +233,21 @@ fn parse_flag(chars: &[char], start: usize) -> (Token, usize) {
     // it's not a real flag — treat the whole token as a literal.
     let is_known_flag = matches!(
         flag_name.as_str(),
-        "g" | "d" | "D" | "E" | "f" | "p" | "pl" | "pr" | "l" | "r" | "W" | "w" | "n" | "c" | "C"
+        "g" | "e"
+            | "d"
+            | "D"
+            | "E"
+            | "f"
+            | "p"
+            | "pl"
+            | "pr"
+            | "l"
+            | "r"
+            | "W"
+            | "w"
+            | "n"
+            | "c"
+            | "C"
     ) || flag_name.chars().all(|c| c.is_ascii_alphabetic());
 
     if !is_known_flag {
@@ -227,6 +258,17 @@ fn parse_flag(chars: &[char], start: usize) -> (Token, usize) {
     }
 
     (Token::Flag(flag_name), i - start)
+}
+
+// To be used elsewhere
+pub fn parse_regex_or_lit(chars: &[char], engine: &RegexEngine) -> Result<CompiledRegex, String> {
+    if chars[0] == '/' {
+        let (pat, flags, _) = parse_regex(chars, 0);
+        CompiledRegex::compile(&pat, &flags, engine)
+    } else {
+        let (lit, _) = parse_quoted(chars, 0, chars[0]);
+        compile_literal(&lit, engine)
+    }
 }
 
 fn parse_regex(chars: &[char], start: usize) -> (String, String, usize) {
@@ -336,7 +378,7 @@ fn parse_tokens(tokens: &[Token], config: &Config) -> Result<Command, String> {
             }
             Token::Flag(f) => {
                 match f.as_str() {
-                    "g" => global.global_match_all = true,
+                    "e" => global.match_every = true,
                     "d" => global.delete_no_match = true,
                     "D" => global.delete_missing_match = true,
                     "l" if !seen_pattern => g_right_align = false,
@@ -355,6 +397,7 @@ fn parse_tokens(tokens: &[Token], config: &Config) -> Result<Command, String> {
             }
             Token::FlagVal(f, v) => {
                 match f.as_str() {
+                    "g" => global.ignore = Some(v.clone()),
                     "E" => global.engine = RegexEngine::from_str(v),
                     "f" if !seen_pattern => {
                         g_fill = v.chars().next().unwrap_or(' ');

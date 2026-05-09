@@ -56,6 +56,10 @@ impl CompiledRegex {
         }
     }
 
+    pub fn find_one(&self, text: &str) -> Option<RegexMatch> {
+        self.find_at(text, 0)
+    }
+
     /// Find the first match in `text` starting at byte offset `start`
     pub fn find_at(&self, text: &str, start: usize) -> Option<RegexMatch> {
         match self {

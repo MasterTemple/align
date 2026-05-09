@@ -21,9 +21,10 @@ The goal is to, for each given line, match certain characters and align them by 
     - A `-` may be interpreted as literal if it does not match to a flag: `-`, `--`, `->` and so on
 
 Only Global Flags:
-- `-g`: Similar to how Vim has a global command `:g` which filters the input to only operate on certain lines, this flag will only perform the alignment on lines when every pattern matches
-2. `-d`: Delete all lines that don’t have any match
-3. `-D`: Delete all lines that don’t have every match
+- `-g`: Similar to how Vim has a global command `:g` which filters the input to only operate on certain lines
+- `-e`: Only perform the alignment on lines when **every** pattern matches
+2. `-d`: Delete all lines that don’t have **any** match
+3. `-D`: Delete all lines that don’t have **every** match
 4. `-E`: Specify the RegEx engine
 
 Each Alignment Flags:

@@ -61,12 +61,13 @@ Supported regex flags: `i` (case-insensitive), `s` (dot-all), `m` (multiline).
 
 These apply to the entire command and must come before any pattern:
 
-| Flag | Description |
-|------|-------------|
-| `-g` | Only align lines where **all** patterns match (like Vim's `:g`) |
-| `-d` | Delete lines with **no** match |
-| `-D` | Delete lines that don't have **every** match |
-| `-E {engine}` | Set regex engine: `fancy_regex` (default) or `regress` |
+| Flag          | Description                                                     |
+|---------------|-----------------------------------------------------------------|
+| `-g {pat}`          | Only align lines where this pattern matches (like Vim's `:g`) |
+| `-e`          | Only align lines where **every** patterns match                   |
+| `-d`          | Delete lines with **no** match                                  |
+| `-D`          | Delete lines that don't have **every** match                    |
+| `-E {engine}` | Set regex engine: `fancy_regex` (default) or `regress`          |
 
 ---
 
@@ -144,10 +145,10 @@ printf 'match = yes\nno match here\nalso = yes\n' | align -d =
 # also  = yes
 ```
 
-### Only align when all patterns match (`-g`)
+### Only align when all patterns match (`-e`)
 
 ```sh
-printf 'a = 1: x\nb = 2\nc = 3: z\n' | align -g = :
+printf 'a = 1: x\nb = 2\nc = 3: z\n' | align -e = :
 # a = 1: x  ← aligned (has both = and :)
 # b = 2      ← unchanged (missing :)
 # c = 3: z  ← aligned
@@ -160,7 +161,7 @@ In visual mode, select lines and run:
 ```vim
 :'<,'>!align =
 :'<,'>!align /=>/ -p 2
-:'<,'>!align = : -g
+:'<,'>!align = : -e
 ```
 
 ---

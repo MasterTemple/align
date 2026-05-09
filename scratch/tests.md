@@ -47,7 +47,11 @@ let some_var = 3.1; // a comment
 let another_var = 72.01; // another comment
 
 hi 3 ok
-o 12 no
+a 32 no
+
+
+hi 3 ok
+a 32 no
 
 
 select *
@@ -155,4 +159,22 @@ ACTUALLY That is correct, because `/` has a default pad of 1
 
 ---
 
+`align /\d+/` should align the numbers, but it does nothing
 
+```
+hi 3 ok
+a 32 no
+```
+
+
+While `align 3 -W -p 0` should not add any additional padding, it shouldn't remove any
+```
+hi 3 ok
+a 32 no
+```
+
+It currently removes the space after `hi` on the first line, but 
+```
+hi3 ok
+a 32 no
+```
