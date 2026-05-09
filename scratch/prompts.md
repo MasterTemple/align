@@ -22,6 +22,7 @@ The goal is to, for each given line, match certain characters and align them by 
 
 Only Global Flags:
 - `-g`: Similar to how Vim has a global command `:g` which filters the input to only operate on certain lines
+- `-v`: Inverse of `-g`: filter which lines to ignore (both may be present)
 - `-e`: Only perform the alignment on lines when **every** pattern matches
 2. `-d`: Delete all lines that don’t have **any** match
 3. `-D`: Delete all lines that don’t have **every** match

@@ -1,14 +1,51 @@
 # align
 
-A CLI tool that aligns text by matched characters or patterns. Designed to be used standalone or piped through Vim (`:'<,'>!align`).
-
-## Installation
-
-```sh
-cargo install --path .
-```
+A CLI tool that aligns text by matched characters or RegEx patterns.
+Designed to be used standalone or piped through Vim (`:'<,'>!align`).
 
 ## Quick Start
+
+### Vim
+
+Apply to a visual selection
+
+```rust
+match value {
+	"a" if value < 1 => do_a(),
+	"b" if value > other => do_b(),
+	"c" => do_something_else(),
+	"complex" => todo!(),
+}
+```
+
+```vim
+:'<,'>!align if '=>'
+```
+
+```rust
+match value {
+	"a" if value < 1     => do_a(),
+	"b" if value > other => do_b(),
+	"c"                  => do_something_else(),
+	"complex"            => todo!(),
+}
+```
+
+```sql
+join some_table T on T.onefield=O.twofield, -- some comment
+left join some_other_table O on O.redfield = T.bluefield, -- another comment!
+```
+
+```vim
+:'<,'>!align join on = --
+```
+
+```sql
+     join some_table T       on T.onefield = O.twofield,  -- some comment
+left join some_other_table O on O.redfield = T.bluefield, -- another comment!
+```
+
+### Shell
 
 ```sh
 # Align `=` signs across lines from stdin
@@ -167,6 +204,16 @@ In visual mode, select lines and run:
 
 ---
 
+## Installation
+
+```sh
+git clone https://github.com/MasterTemple/align.git
+cd align
+cargo install --path .
+```
+
+---
+
 ## Config File
 
 Located at `~/.config/align/config.toml` (created with defaults on first run):
@@ -198,6 +245,13 @@ pad = { left = 0, right = 1 }
 [patterns."."]
 pad = 0
 context = '/\d+$/'
+```
+
+or set patterns like this
+
+```toml
+[patterns]
+"." = { pad = 0, context = '/\d+$/', word = "" }
 ```
 
 ### Per-pattern config keys
@@ -237,3 +291,9 @@ align -E regress /(?<=:)\s*\w+/
 6. Output the result (applying deletion filters if set).
 
 Multiple patterns are applied sequentially; each pass sees the output of the previous.
+
+---
+
+## Provenance
+
+Thanks Claude for the help 🫡
