@@ -1,328 +1,306 @@
 # align
 
-A CLI tool that aligns text by matching on string literals or Regular Expressions, with options to left/right align, customize padding, filter, and more.
+Line up text in columns by matching literals or regular expressions.
 
-Designed to be piped through Vim (`:'<,'>!align`) or used standalone in the shell.
+One repository, three ways to use it:
 
-
-
-## Quick Start
-
-> [!NOTE]
-> Vim or the shell may consume certain characters like `;` or `#`, in that case, wrap with any quotes (`"`, `'`, or `\``)
-
-### Vim
-
-Apply to a visual selection
-
-**Before:**
+| | |
+|---|---|
+| **CLI** `align` | a filter for the shell or Vim (`:'<,'>!align =`) |
+| **Neovim plugin** | `:Align` with a live preview, saved patterns, Telescope |
+| **Rust library** `align-lib` | the engine, with no I/O |
 
 ```rust
-match value {
-	"a" if value < 1 => do_a(),
-	"b" if value > other => do_b(),
-	"c" => do_something_else(),
-	"complex" => todo!(),
-}
+match value {                            match value {
+    "a" if value < 1 => do_a(),              "a" if value < 1     => do_a(),
+    "b" if value > other => do_b(),   →      "b" if value > other => do_b(),
+    "c" => do_something_else(),              "c"                  => do_something_else(),
+}                                        }
 ```
-
-**Then:**
-
-```vim
-:'<,'>!align if '=>'
-```
-
-**After:**
-
-```rust
-match value {
-	"a" if value < 1     => do_a(),
-	"b" if value > other => do_b(),
-	"c"                  => do_something_else(),
-	"complex"            => todo!(),
-}
-```
-
-**Before:**
+`align if '=>'`
 
 ```sql
 join some_table T on T.onefield=O.twofield, -- some comment
 left join some_other_table O on O.redfield = T.bluefield, -- another comment!
 ```
-
-**Then:**
-
-```vim
-:'<,'>!align join on = --
-```
-
-**After:**
-
+`align join on = --` gives
 ```sql
      join some_table T       on T.onefield = O.twofield,  -- some comment
 left join some_other_table O on O.redfield = T.bluefield, -- another comment!
 ```
 
-### Shell
+---
+
+## Install
+
+### Neovim (lazy.nvim)
+
+Requires Neovim 0.10+ and a Rust toolchain (`cargo`). The binary is built
+automatically on install and update. The plugin uses its own build, so
+nothing needs to be on your `$PATH`.
+
+```lua
+{ "MasterTemple/align", opts = {} }
+```
+
+If the build fails or you update Rust, run `:Lazy build align`. Then run
+`:checkhealth align` to check everything is working.
+
+### CLI only
 
 ```sh
-# Align `=` signs across lines from stdin
-echo "foo = 1
-foobar = 2
-x = 3" | align =
+cargo install --git https://github.com/MasterTemple/align align-cli   # installs `align`
+```
 
-# Output:
-# foo    = 1
-# foobar = 2
-# x      = 3
+---
+
+## How it works
+
+1. **Patterns are matched left to right.** In each line, the second pattern is searched
+   for after the first pattern's match, the third after the second's, and so on. If a
+   pattern isn't found, it is skipped and the next one is searched for from the same spot.
+2. **Each pattern matches once** unless you ask for more with `-n N`, `-n *` or `/regex/g`.
+3. Each (pattern, occurrence) is a **column**. Columns are laid out left to right, and every
+   line that has a column gets its match moved to the same display column.
+4. **Gaps are rebuilt, not just padded.** The whitespace before and after each match is
+   replaced with the padding (default 1 space) plus whatever is needed to line up. Running
+   align again is a no-op, and re-running after an edit tightens things back up.
+5. Indentation is kept. Padding is never added at the start or end of a line.
+6. Lines with no match (or filtered out with `-g` / `-v` / `-e`) pass through unchanged.
+
+```text
+$ align =                 $ align = -n 2            $ align : =
+a   = 1 = x = 9           a   = 1   = x = 9         x      : a  = 1 = 2
+bbb = 100 = y = 8         bbb = 100 = y = 8         longer : bb = 1 = 22
 ```
 
 ## Usage
 
 ```
-align [global-flags] <pattern> [flags] [<pattern> [flags] ...]
+align [global flags] <pattern> [flags] [<pattern> [flags] ...]  < input
 ```
 
-Lines are read from stdin. Patterns are matched in order; lines without any match are passed through unchanged.
+All arguments are joined with spaces and parsed as one string. So
+`align if '=>'` and `align "if '=>'"` mean the same thing. To put a space inside
+a literal, quote it inside the argument: `align "'= '"`. In Vim and the shell,
+characters like `#`, `;` and `|` need quotes: `:'<,'>!align '#'`.
 
----
+### Patterns
 
-## Patterns
+| Pattern | Meaning |
+|---|---|
+| `=` `->` `join` | Literal (no spaces). A `-` word that isn't a flag is a literal: `->`, `--`, `-` |
+| `'= '` `"'"` `` `"` `` | Quoted literal (any of the three quote characters). Use one quote type to wrap another. |
+| `/=+/` `/\d+/i` | Regex. Flags: `i` `m` `s`, `x` (fancy_regex only), and `g` (same as `-n *`) |
+| `/` `//` | A lone `/` or a word starting with `//` is a literal |
 
-### Literal Patterns
+**Word boundaries:** a match whose edge is a word character must not run into
+another word character. `foo` doesn't match inside `foobar`, but `=` matches in
+`a=1`. Use `-W` to turn this off, or `-w PAT` to set what counts as a boundary.
 
-Literals may be:
-- **Unquoted** (no spaces): `align =` (NOTE: Vim or the shell may treat certain characters like `;` or `#` specially, in that case, wrap with quotes)
-- **Quoted** with backtick, single, or double quote: `align '='`, `align "="`, `` align `=` ``
-- A `-` that doesn't match a flag is treated as a literal: `align ->`, `align --`
+### Global flags
 
-**Edge cases:** A lone `` ` ``, `'`, `"`, or `/` must be wrapped in another pair of quotes to be a literal.
+| Flag | |
+|---|---|
+| `-g PAT` | Only align lines matching `PAT` (like Vim's `:g`) |
+| `-v PAT` | Don't align lines matching `PAT` (like Vim's `:v`) |
+| `-e` | Only align lines where **every** pattern matches |
+| `-d` | Delete lines with **no** match |
+| `-D` | Delete lines that are missing **any** pattern |
+| `-E ENGINE` | `fancy_regex` (default; Rust syntax + lookaround) or `regress` (JavaScript syntax) |
 
-### Regex Patterns
+### Pattern flags
 
-Delimited by `/`:
+These go after a pattern. Placed before the first pattern, they become the
+default for every pattern.
 
-```sh
-align /=>/          # match =>
-align /\\s*=\\s*/     # match = with surrounding whitespace
-align /foo/gi       # case-insensitive, global (find all)
+| Flag | |
+|---|---|
+| `-n N` / `-n *` | Match up to `N` times / as many times as possible (default 1) |
+| `-p N`, `-pl N`, `-pr N` | Spaces between the match and its neighbours: both sides / left / right (default 1) |
+| `-l` / `-r` | Line up the **left** (default) / **right** edges of the matches |
+| `-j` | Right-justify the text before the match (`-C` is an alias) |
+| `-c PAT` | Insert fill before the last `PAT` in the text before the match (`^` and `$` refer to that text) |
+| `-f C` | Fill character for the alignment gap (padding stays spaces) |
+| `-w PAT` / `-W` | Word-boundary characters / no word boundary |
+
+```text
+$ align /=+/ -r          $ align = -j             $ align . -p 0 -c /\d+$/
+a     = 1                apple = 1                 3.14
+bb   == 2                  fig = 22               72.0
+ccc === 3                                          1.618
+
+$ align = -f .           $ align /\d+/ -r -f 0    $ align ( , -pl 0 -n *
+intro ..... = 1          id 0007                  f   ( a  , bb, c)
+conclusion  = 42         id 1234                  fff ( aaa, b , cc)
+
+$ align -v '#' =         $ align -e = :           $ align -D = :
+a    = 1                 a   = 1 : x              a   = 1 : x
+b = 2 # skip             bb = 2                   ccc = 3 : z
+cccc = 3                 ccc = 3 : z
 ```
 
-Supported regex flags: `i` (case-insensitive), `s` (dot-all), `m` (multiline).
+How the fill character is placed: punctuation (`.`, `-`) acts as a dot leader,
+with a space on each side. Alphanumeric characters (`0`) go right against the
+match, which gives zero-padding. A space is just a space.
 
----
+### Other options
 
-## Global Flags
+`align --help`, `align --version`, `align --config-path`, and `align --json`
+(see [JSON protocol](#json-protocol)). Errors exit with status 2 and point at
+the offending column:
 
-These apply to the entire command and must come before any pattern:
-
-| Flag          | Description                                                             |
-|---------------|-------------------------------------------------------------------------|
-| `-g {pat}`    | Only align lines where this pattern matches (like Vim's `:g`)           |
-| `-v {pat}`    | Only align lines where this pattern **doesn't** match (like Vim's `:v`) |
-| `-e`          | Only align lines where **every** patterns match                         |
-| `-d`          | Delete lines with **no** match                                          |
-| `-D`          | Delete lines that don't have **every** match                            |
-| `-E {engine}` | Set regex engine: `fancy_regex` (default) or `regress`                  |
-
----
-
-## Per-Pattern Flags
-
-These follow immediately after their pattern:
-
-| Flag        | Description                                          |
-|-------------|------------------------------------------------------|
-| `-f {char}` | Filler character for this alignment (default: space) |
-| `-p {n}`    | Padding on both sides of the match                   |
-| `-pl {n}`   | Left padding                                         |
-| `-pr {n}`   | Right padding                                        |
-| `-l`        | Left-align (default)                                 |
-| `-r`        | Right-align                                          |
-| `-w {pat}`  | Word-boundary delimiter (default: `/[^A-Za-z0-9_]/`) |
-| `-W`        | Disable word-boundary checking                       |
-| `-n {n\|*}` | Repeat this pattern `n` times (`*` = unlimited)      |
-| `-c {pat}`  | Context pattern — aligns the slice before the match  |
-| `-C`        | Use the entire slice before the match as context     |
-
-> [!NOTE]
-> Flags before any pattern **override** defaults for all patterns.
-
-<!-- --- -->
-<!---->
-<!-- ## Examples -->
-<!---->
-<!-- ### Basic alignment -->
-<!---->
-<!-- ```sh -->
-<!-- printf 'a = 1\nfoobar = 2\nx = 3\n' | align = -->
-<!-- # a      = 1 -->
-<!-- # foobar = 2 -->
-<!-- # x      = 3 -->
-<!-- ``` -->
-<!---->
-<!-- ### Multiple patterns -->
-<!---->
-<!-- ```sh -->
-<!-- printf 'a = 1: foo\nlonger = 22: bar\n' | align = : -->
-<!-- # a      = 1:  foo -->
-<!-- # longer = 22: bar -->
-<!-- ``` -->
-<!---->
-<!-- ### Regex alignment -->
-<!---->
-<!-- ```sh -->
-<!-- printf 'key => value\nlonger_key => other\n' | align /=>/ -->
-<!-- # key        => value -->
-<!-- # longer_key => other -->
-<!-- ``` -->
-<!---->
-<!-- ### Dot alignment with context (`-c`) -->
-<!---->
-<!-- ```sh -->
-<!-- printf '3.14\n72.0\n1.618\n' | align . -p 0 -c '/\d+$/' -->
-<!-- #  3.14 -->
-<!-- # 72.0 -->
-<!-- #  1.618 -->
-<!-- ``` -->
-<!---->
-<!-- ### Custom filler -->
-<!---->
-<!-- ```sh -->
-<!-- printf 'a = 1\nfoobar = 2\n' | align = -f . -->
-<!-- # a...... = 1 -->
-<!-- # foobar  = 2 -->
-<!-- ``` -->
-<!---->
-<!-- ### Delete non-matching lines -->
-<!---->
-<!-- ```sh -->
-<!-- printf 'match = yes\nno match here\nalso = yes\n' | align -d = -->
-<!-- # match = yes -->
-<!-- # also  = yes -->
-<!-- ``` -->
-<!---->
-<!-- ### Only align when all patterns match (`-e`) -->
-<!---->
-<!-- ### Only align certain lines (`-g`) -->
-<!---->
-<!-- ### Don't align certain lines (`-v`) -->
-<!---->
-<!-- ```sh -->
-<!-- printf 'a = 1: x\nb = 2\nc = 3: z\n' | align -e = : -->
-<!-- # a=1:x -->
-<!-- # b=2 -->
-<!-- # c=3:z -->
-<!-- ``` -->
-<!---->
-<!-- ```bash -->
-<!-- a = 1 : x # ← aligned (has both = and : ) -->
-<!-- b=2       # ← unchanged (missing :) -->
-<!-- c = 3 : z # ← aligned (has both = and : ) -->
-<!-- ``` -->
-<!---->
-<!-- ### Vim usage -->
-<!---->
-<!-- In visual mode, select lines and run: -->
-<!---->
-<!-- ```vim -->
-<!-- :'<,'>!align = -->
-<!-- :'<,'>!align /=>/ -p 2 -->
-<!-- :'<,'>!align = : -e -->
-<!-- ``` -->
-
----
-
-## Installation
-
-```sh
-git clone https://github.com/MasterTemple/align.git
-cd align
-cargo install --path .
+```text
+$ align = -x
+align: unknown flag -x (quote it to align on the literal text, e.g. '-x')
+    = -x
+      ^
 ```
 
 ---
 
-## Config File
+## Config file
 
-Located at `~/.config/align/config.toml` (created with defaults on first run):
+The config file lives at `~/.config/align/config.toml`, or wherever
+`align --config-path` says. A fully commented template is created on first
+run. Set `ALIGN_CONFIG=/path` to use another file, or `ALIGN_CONFIG=` (empty)
+to ignore it.
 
 ```toml
-# Default filler character
-fill = ' '
-
-# Default padding
-pad = 1
-
-# Regex engine: 'fancy_regex' or 'regress'
-engine = 'fancy_regex'
-
-# Word boundary for literals
+fill = ' '                       # alignment fill character
+pad = 1                          # or { left = 0, right = 1 }
 word_bound_literal = '/[^A-Za-z0-9_]/'
-
-# Word boundary for regex patterns
 word_bound_regex = '/[^A-Za-z0-9_]/'
+engine = 'fancy_regex'           # or 'regress'
+tabstop = 8                      # the Neovim plugin passes the buffer's 'tabstop'
 
-# Per-pattern defaults
-[patterns."="]
-fill = ' '
-pad = 1
-
-[patterns.","]
-pad = { left = 0, right = 1 }
-
-[patterns."."]
-pad = 0
-context = '/\d+$/'
+# Defaults whenever a pattern is used, keyed by the pattern as typed.
+[patterns]
+"," = { pad = { left = 0, right = 1 } }
+"." = { pad = 0, context = '/\d+$/' }
+'/=+/' = { align = 'right' }
 ```
 
-or set patterns like this
+Per-pattern keys: `fill`, `pad`, `align` (`'left'`/`'right'`), `word` (`''` turns
+word boundaries off), `context` (`''` means the whole slice, like `-j`), and
+`repeat` (a number or `'*'`). Unknown keys are reported as errors.
+
+Precedence, from lowest to highest: built-in defaults → top-level config →
+`[patterns]` config → flags before the first pattern → a regex's `g` flag →
+flags after the pattern.
+
+---
+
+## Neovim plugin
+
+```
+:[range]Align                      open the input window with a live preview
+:[range]Align <pattern>            align right away, e.g. :Align if '=>'
+:[range]Align <name>               apply a saved pattern
+:[range]Align telescope [saved|recent|all]
+```
+
+With no range, `:Align` works on the whole buffer. From visual mode, use
+`:'<,'>Align`. Each alignment is a single undo step.
+
+In the input window: `<CR>` applies, `<Esc>` / `<C-c>` cancels, and `<C-p>` / `<C-n>`
+(or `<Up>` / `<Down>`) walk through this session's history. Changed lines are
+highlighted in the preview. Errors appear in the preview, and the offending
+column is underlined in the input.
+
+```lua
+{
+  "MasterTemple/align",
+  -- optional: dependencies = { "nvim-telescope/telescope.nvim" },
+  keys = {
+    { "<leader>a", ":Align<CR>", mode = { "n", "x" }, desc = "Align" },
+  },
+  opts = {
+    bin = nil,           -- path to the binary; nil = plugin build → $PATH → ~/.cargo/bin
+    debounce_ms = 50,    -- preview delay
+    history_max = 100,
+    border = "rounded",
+    patterns = {         -- saved patterns: :Align <name>, completion, Telescope
+      { name = "arms", pattern = "if '=>'", filetypes = { "rust" } },
+      { name = "sql",  pattern = "join on = --" },
+      { name = "eq",   pattern = "=" },  -- filetypes omitted = everywhere; "" = no filetype
+    },
+  },
+}
+```
+
+In the Telescope picker, `<CR>` applies the selected pattern and `<C-e>` opens it
+in the input window to edit first. The preview shows the aligned result.
+
+---
+
+## Library
 
 ```toml
-[patterns]
-"." = { pad = 0, context = '/\d+$/', word = "" }
+[dependencies]
+align-lib = { git = "https://github.com/MasterTemple/align" }
 ```
 
-### Per-pattern config keys
+```rust
+use align_lib::{align, Command, Config};
 
-| Key       | Type                     | Description           |
-|-----------|--------------------------|-----------------------|
-| `fill`    | char                     | Filler character      |
-| `pad`     | int or `{ left, right }` | Padding               |
-| `align`   | `"left"` or `"right"`    | Alignment direction   |
-| `word`    | string                   | Word-boundary pattern |
-| `context` | string                   | Context pattern       |
+let out = align("=", &["foo = 1", "foobar = 2"], &Config::default())?;
+assert_eq!(out, ["foo    = 1", "foobar = 2"]);
+
+// Parse once, apply many times. Errors carry a column into the pattern.
+let cmd = Command::parse("if '=>'", &Config::default())?;
+let out = cmd.apply(&lines);
+```
+
+`Config::from_toml` parses a config file's contents. The library never reads or
+writes files itself.
+
+### JSON protocol
+
+`align --json` reads one request from stdin and writes one response. Editor
+integrations use this mode, so no shell quoting is involved.
+
+```json
+{ "pattern": "if '=>'", "lines": ["…", "…"], "tabstop": 4 }
+{ "output": ["…", "…"], "error": null }
+{ "output": null, "error": { "message": "unknown flag -x …", "col": 2 } }
+```
+
+`col` is a 0-based character offset into `pattern`, or `null`. The old v1 form
+(`{"args": [...]}` with a string `error`) is still accepted.
 
 ---
 
-## Regex Engines
-
-| Engine        | Crate                                               | Notes                                     |
-|---------------|-----------------------------------------------------|-------------------------------------------|
-| `fancy_regex` | [fancy_regex](https://crates.io/crates/fancy_regex) | Default. Supports lookaheads/lookbehinds. |
-| `regress`     | [regress](https://crates.io/crates/regress)         | ES2021-compatible.                        |
-
-Switch engines:
+## Development
 
 ```sh
-align -E regress /(?<=:)\s*\w+/
+cargo test                                   # unit, golden (crates/align-lib/tests/cases.txt), fuzz, CLI
+cargo build --release && nvim --headless --clean -l tests/plugin.lua   # plugin tests
 ```
 
----
+To add a golden case, append to `crates/align-lib/tests/cases.txt`:
 
-## How It Works
+```text
+## description
+$ = -n 2 :
+< input line
+> expected line
+```
 
-1. Parse all patterns and flags from the argument string (quotes preserved).
-2. For each pattern, find all matches in each line (respecting word boundaries, repeat limits).
-3. Compute the maximum column position across all matched lines.
-4. Insert or trim filler characters so every match lands at that column.
-5. Apply padding rules around each match.
-6. Output the result (applying deletion filters if set).
+## Changes from 0.1
 
-Multiple patterns are applied sequentially; each pass sees the output of the previous.
-
----
-
-## Provenance
-
-Thanks Claude for the help 🫡
+- Patterns are matched in order along the line, and each matches **once** by default.
+  Before, every pattern matched everywhere, so a later pattern could break an
+  earlier column. Use `-n *` or `/re/g` for the old repeat behaviour.
+- Gaps are normalized: existing whitespace around a match is rebuilt from the padding.
+- `-r` now works. `-j` is new (`-C` is kept as an alias). `-f` uses leader style.
+- Right padding is exact, tabs are measured with `tabstop`, and no padding is
+  added at the start or end of a line.
+- `^`, `\b` and lookbehind see the whole line.
+- Invalid regexes, unknown flags or engines, and config typos are now errors
+  instead of being ignored.
+- Every pattern flag can be a global default. The `word_bound_*` settings and
+  `align = 'right'` in the config now take effect. The old default
+  `/[^A-z0-9_]/` is migrated to `/[^A-Za-z0-9_]/`.
+- Neovim: install with lazy.nvim (the binary is built automatically).
+  `:Align <pattern>` applies directly. Added `:checkhealth align`.

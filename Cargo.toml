@@ -1,18 +1,8 @@
-[package]
-name = "align"
-version = "0.1.0"
+[workspace]
+members = ["crates/align-lib", "crates/align-cli"]
+resolver = "2"
+
+[workspace.package]
+version = "0.2.0"
 edition = "2021"
-description = "A CLI tool to align text by matched characters/patterns"
-authors = []
-
-[[bin]]
-name = "align"
-path = "src/main.rs"
-
-[dependencies]
-fancy-regex = "0.13"
-regress = "0.10"
-directories = "5"
-toml = "0.8"
-serde = { version = "1", features = ["derive"] }
-unicode-width = "0.1"
+repository = "https://github.com/MasterTemple/align"
