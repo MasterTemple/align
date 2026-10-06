@@ -1,5 +1,20 @@
 # align: rewrite plan
 
+> **Status (2026-10-06): implemented.** Phases 1–4 are done and the README is rewritten.
+> Pushing to the upstream repo is pending your go-ahead. Where the implementation
+> refines this plan:
+> - **Fill placement:** punctuation fills (`.`) are leaders with a space on each side
+>   (`a ..... = 1` / `foobar  = 2`, as in the approved preview). Alphanumeric fills (`0`)
+>   sit against the match, which gives zero-padding (`id 0007`).
+> - **Precedence:** command-line flags beat config `[patterns]` defaults, including flags
+>   given before the first pattern. The old code let config per-pattern defaults
+>   override global CLI flags.
+> - **Context and tabs:** if a tab after the `-c`/`-j` insertion point makes the column
+>   unreachable, that line falls back to filling right before the match.
+> - **Word bounds:** a side is checked only if the match's edge character is a word
+>   character (so `=` matches in `a=1` and `foo` doesn't match inside `foobar`). This
+>   applies to both default and custom `-w` bounds.
+
 Goal: replace https://github.com/MasterTemple/align with a single repo that ships
 1. a Rust library (`align-lib`)
 2. a CLI (`align`)
