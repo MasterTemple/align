@@ -1,3 +1,8 @@
 [workspace]
-members = ["align-lib", "align"]
+members = ["crates/align-lib", "crates/align-cli"]
 resolver = "2"
+
+[workspace.package]
+version = "0.2.0"
+edition = "2021"
+repository = "https://github.com/MasterTemple/align"

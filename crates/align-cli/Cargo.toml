@@ -1,0 +1,16 @@
+[package]
+name = "align-cli"
+description = "CLI for aligning text into columns by literal or regex patterns"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "align"
+path = "src/main.rs"
+
+[dependencies]
+align-lib = { path = "../align-lib" }
+directories = "5"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"

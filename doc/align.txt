@@ -1,0 +1,112 @@
+*align.txt*  Line up text in columns by literal or regex patterns
+
+==============================================================================
+CONTENTS                                                      *align-contents*
+
+  1. Commands ........................................... |align-commands|
+  2. Patterns ........................................... |align-patterns|
+  3. Flags .............................................. |align-flags|
+  4. Configuration ...................................... |align-config|
+  5. Lua API ............................................ |align-api|
+
+Requires Neovim 0.10+ and `cargo`. lazy.nvim builds the binary on install
+(see build.lua). Run |:checkhealth| align if something is off.
+
+==============================================================================
+1. COMMANDS                                                   *align-commands*
+
+                                                                      *:Align*
+:[range]Align           Open the input window with a live preview of the
+                        aligned [range] (default: whole buffer).
+                        <CR> apply, <Esc>/<C-c> cancel, <C-p>/<C-n> (or
+                        <Up>/<Down>) walk the session history.
+
+:[range]Align {pattern} Align [range] with {pattern} right away. {pattern}
+                        is passed verbatim, so no shell quoting is needed:
+                        `:'<,'>Align if '=>'`
+
+:[range]Align {name}    Apply the saved pattern {name} (see |align-config|).
+                        Completion offers names for the current 'filetype'.
+
+:[range]Align telescope [saved|recent|all]
+                        Pick a saved or recent pattern with Telescope.
+                        <CR> applies, <C-e> opens it in the input window.
+
+Each application is one undo step. Tabs are measured with the buffer's
+'tabstop'.
+
+==============================================================================
+2. PATTERNS                                                   *align-patterns*
+
+    [global flags] {pattern} [flags] [{pattern} [flags] ...]
+
+Patterns are matched left to right: each one is searched for after the
+previous pattern's match, and a missing pattern is skipped. Each pattern
+matches once unless -n says otherwise. Every (pattern, occurrence) becomes a
+column, and the whitespace around each match is rebuilt from the padding plus
+the fill needed to line up. Indentation is kept, and no padding is added at
+the start or end of a line.
+
+    =  ->  join         literal; a `-` word that is not a flag is literal
+    '= '  "'"  `"`      quoted literal
+    /=+/  /\d+/i        regex; flags i m s x g (g = -n *)
+    /  //               a lone / or a word starting with // is literal
+
+A match whose edge is a word character must not touch another word
+character: `foo` does not match inside `foobar`, but `=` matches in `a=1`.
+
+==============================================================================
+3. FLAGS                                                         *align-flags*
+
+Global:
+    -g PAT      only align lines matching PAT
+    -v PAT      do not align lines matching PAT
+    -e          only align lines where every pattern matches
+    -d          delete lines with no match
+    -D          delete lines missing any pattern
+    -E ENGINE   fancy_regex (default) or regress
+
+Per pattern (after it; before the first pattern = default for all):
+    -n N|*      match up to N times (default 1)
+    -p N        spaces on both sides (default 1); -pl N / -pr N one side
+    -l / -r     line up left (default) / right edges of the matches
+    -j          right-justify the text before the match (alias: -C)
+    -c PAT      put the fill before the last PAT in the text before the match
+    -f C        fill character for the gap (padding stays spaces)
+    -w PAT      word-boundary characters;  -W  no word boundary
+
+==============================================================================
+4. CONFIGURATION                                                *align-config*
+
+>lua
+    require("align").setup({
+      bin = nil,          -- nil: plugin build, then $PATH, then ~/.cargo/bin
+      debounce_ms = 50,
+      history_max = 100,
+      border = "rounded",
+      patterns = {
+        { name = "arms", pattern = "if '=>'", filetypes = { "rust" } },
+        { name = "sql",  pattern = "join on = --" },
+      },
+    })
+<
+`filetypes` omitted or {} means every filetype; "" matches buffers without
+a filetype.
+
+Pattern defaults (padding, fill, and so on, per pattern) live in the CLI
+config file: `~/.config/align/config.toml` (see `align --config-path`).
+
+==============================================================================
+5. LUA API                                                         *align-api*
+
+require("align").apply({pattern}, {range} [, {on_done}])
+    Align {range} = { buf, first, last } (0-based, end-exclusive).
+
+require("align").run({pattern}, {lines}, {opts}, {callback})
+    Align a list of lines without touching a buffer.
+    {callback}(output, err), where err = { message, col }.
+
+require("align").open({range} [, {initial}])
+    Open the input window.
+
+ vim:tw=78:ts=8:ft=help:norl:

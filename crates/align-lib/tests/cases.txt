@@ -1,0 +1,369 @@
+# Golden cases for align. See golden.rs for the format.
+# Expected output is exact; `|` markers in failure output show line edges.
+
+## basic equals
+$ =
+< foo = 1
+< foobar = 2
+< x = 3
+> foo    = 1
+> foobar = 2
+> x      = 3
+
+## README: match arms (tabs, missing first pattern)
+$ if '=>'
+< match value {
+< \t"a" if value < 1 => do_a(),
+< \t"b" if value > other => do_b(),
+< \t"c" => do_something_else(),
+< \t"complex" => todo!(),
+< }
+> match value {
+> \t"a" if value < 1     => do_a(),
+> \t"b" if value > other => do_b(),
+> \t"c"                  => do_something_else(),
+> \t"complex"            => todo!(),
+> }
+
+## README: SQL join
+$ join on = --
+< join some_table T on T.onefield=O.twofield, -- some comment
+< left join some_other_table O on O.redfield = T.bluefield, -- another comment!
+>      join some_table T       on T.onefield = O.twofield,  -- some comment
+> left join some_other_table O on O.redfield = T.bluefield, -- another comment!
+
+## scratch: SQL join with unrelated lines
+$ join on = --
+< select *
+< from first_table
+< join some_table T on T.asdfe=O.sdf30, -- some comment
+< left join some_other_table O on O.b43 = T.jf81asfdsafadsf, -- another comment!
+> select *
+> from first_table
+>      join some_table T       on T.asdfe = O.sdf30,           -- some comment
+> left join some_other_table O on O.b43   = T.jf81asfdsafadsf, -- another comment!
+
+## B1: a pattern matches once by default
+$ =
+< a = 1 = 2
+< bbb = 1 = 22
+> a   = 1 = 2
+> bbb = 1 = 22
+
+## B1: -n 2 then a pattern that only occurs earlier in the line
+$ = -n 2 :
+< x: a = 1 = 2
+< longer: bb = 1 = 22
+> x: a       = 1 = 2
+> longer: bb = 1 = 22
+
+## patterns in line order with -n
+$ : = -n 2
+< x: a = 1 = 2
+< longer: bb = 1 = 22
+> x      : a  = 1 = 2
+> longer : bb = 1 = 22
+
+## -n * repeats until no more matches
+$ , -pl 0 -n *
+< a,b,c
+< aaa,bb,c
+> a  , b , c
+> aaa, bb, c
+
+## /re/g is -n *
+$ /,/g -pl 0
+< a,b,c
+< aaa,bb,c
+> a  , b , c
+> aaa, bb, c
+
+## -n 2 stops after two
+$ , -pl 0 -n 2
+< a,b,c,d
+< aaa,bb,c,d
+> a  , b , c,d
+> aaa, bb, c,d
+
+## B2: later pattern searched after earlier one
+$ // =
+< let a = 1; // c
+< let bbbb = 22; // d
+> let a = 1;     // c
+> let bbbb = 22; // d
+
+## B2: in-order version
+$ = //
+< let a = 1; // c
+< let bbbb = 22; // d
+> let a    = 1;  // c
+> let bbbb = 22; // d
+
+## a line missing a middle pattern still aligns later columns
+$ a b c
+< a 1 b 2 c 3
+< a 11 c 33
+> a 1 b 2 c 3
+> a 11    c 33
+
+## B3: -r lines up right edges
+$ /=+/ -r
+< a = 1
+< bb == 2
+< c === 3
+> a   = 1
+> bb == 2
+> c === 3
+
+## B3: align = 'right' from config
+$ /=+/
+% [patterns]
+% '/=+/' = { align = 'right' }
+< a = 1
+< bb == 2
+> a   = 1
+> bb == 2
+
+## B4: right padding is exact
+$ = -pr 3
+< a = 1
+< bbb = 2
+> a   =   1
+> bbb =   2
+
+## normalize: -p 0 shrinks gaps
+$ = -p 0
+< a    = 1
+< bbb = 2
+> a  =1
+> bbb=2
+
+## normalize: existing extra space is rebuilt
+$ =
+< a        = 1
+< bbb =      2
+> a   = 1
+> bbb = 2
+
+## scratch: -p 0 with -W glues tokens (normalize)
+$ 3 -W -p 0
+< hi 3 ok
+< a 32 no
+> hi3ok
+> a 32 no
+
+## scratch: regex numbers
+$ /\d+/
+< hi 3 ok
+< a 32 no
+> hi 3 ok
+> a  32 no
+
+## B5: ^ only matches at the real line start, even when repeating
+$ /^\w+/ -n 3 =
+< ab = 1
+< abcd = 2
+> ab   = 1
+> abcd = 2
+
+## context: decimal points
+$ . -p 0 -c /\d+$/
+< 3.1
+< 72.0
+< 1.618
+>  3.1
+> 72.0
+>  1.618
+
+## README: context from config
+$ = .
+% [patterns]
+% "." = { pad = 0, context = '/\d+$/' }
+< let some_var = 3.1;
+< let another_var = 72.0;
+> let some_var    =  3.1;
+> let another_var = 72.0;
+
+## -j right-justifies the text before the match
+$ = -j
+< a = 1
+< bbb = 2
+>   a = 1
+> bbb = 2
+
+## -C is an alias for -j
+$ = -C
+< a = 1
+< bbb = 2
+>   a = 1
+> bbb = 2
+
+## B6: leader fill
+$ = -f .
+< a = 1
+< foobar = 2
+> a ..... = 1
+> foobar  = 2
+
+## B6: leader fill as a global default
+$ -f . =
+< a = 1
+< foobar = 2
+> a ..... = 1
+> foobar  = 2
+
+## alphanumeric fill zero-pads
+$ /\d+/ -r -f 0
+< x 1
+< y 100
+> x 001
+> y 100
+
+## B10: no padding at the start of a line
+$ foo
+< foo_x = 1
+< foo = 2
+> foo_x = 1
+> foo = 2
+
+## indentation is kept; alignment at line start uses fill
+$ join
+< join a
+<     join b
+>     join a
+>     join b
+
+## no trailing padding
+$ ,
+< a = 1,
+< bbb = 2,
+> a = 1   ,
+> bbb = 2 ,
+
+## -v ignores lines
+$ -v '#' =
+< a = 1
+< b = 2 # skip
+< cccc = 3
+> a    = 1
+> b = 2 # skip
+> cccc = 3
+
+## -g keeps lines
+$ -g /^[ac]/ =
+< a = 1
+< bbbbbbb = 2
+< cccc = 3
+> a    = 1
+> bbbbbbb = 2
+> cccc = 3
+
+## -e only aligns lines with every pattern
+$ -e = :
+< a = 1: x
+< bb = 2
+< ccc = 3: z
+> a   = 1 : x
+> bb = 2
+> ccc = 3 : z
+
+## -d deletes lines without a match
+$ -d =
+< a = 1
+< no match
+< bbb = 2
+> a   = 1
+> bbb = 2
+
+## -D deletes lines missing a pattern
+$ -D = :
+< a = 1: x
+< bb = 2
+< ccc = 3: z
+> a   = 1 : x
+> ccc = 3 : z
+
+## B7: tab in a gap
+$ =
+% tabstop = 4
+< a\t= 1
+< bbbbb = 2
+> a     = 1
+> bbbbb = 2
+
+## B7: tab indentation counts with tabstop
+$ =
+% tabstop = 4
+< \tx = 1
+< yyyyyy = 2
+> \tx  = 1
+> yyyyyy = 2
+
+## custom word bound
+$ foo -w ' '
+< foo_x foo = 1
+< a foo = 2
+> foo_x foo = 1
+> a     foo = 2
+
+## -W disables word bounds
+$ foo -W
+< foo_x = 1
+< a foo = 2
+>   foo _x = 1
+> a foo = 2
+
+## B8: config word bound is used
+$ foo
+% word_bound_literal = '/[^a-z]/'
+< foo1 = 1
+< a foo = 2
+>   foo 1 = 1
+> a foo = 2
+
+## regress engine
+$ -E regress /\d+/ -r
+< a 1
+< b 100
+> a   1
+> b 100
+
+## wide characters
+$ =
+< 日本 = 1
+< abc = 2
+> 日本 = 1
+> abc  = 2
+
+## dash literals
+$ -> --
+< a -> b -- c
+< aaa -> bb -- c
+> a   -> b  -- c
+> aaa -> bb -- c
+
+## quoted literal with a space
+$ '= '
+< a = 1
+< bbb = 2
+> a   =  1
+> bbb =  2
+
+## empty input
+$ =
+
+## B9: unknown flag
+$ = -x
+> ERROR: unknown flag -x
+
+## B9: invalid regex
+$ /[/
+> ERROR: invalid regex
+
+## B9: invalid -g regex
+$ -g /(/ =
+> ERROR: -g: invalid regex
+
+## B9: unknown engine
+$ -E bogus =
+> ERROR: unknown regex engine

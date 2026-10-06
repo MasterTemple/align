@@ -1,19 +1,16 @@
 [package]
 name = "align-lib"
-version = "0.1.0"
-edition = "2021"
+description = "Align text into columns by literal or regex patterns"
+version.workspace = true
+edition.workspace = true
+repository.workspace = true
 
 [lib]
 name = "align_lib"
-crate-type = ["lib"]
 
 [dependencies]
 fancy-regex = "0.13"
 regress = "0.9"
 unicode-width = "0.1"
-directories = "5"
 serde = { version = "1", features = ["derive"] }
 toml = "0.8"
-
-[dependencies.indexmap]
-version = "=2.2.6"
