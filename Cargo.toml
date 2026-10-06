@@ -1,0 +1,3 @@
+[workspace]
+members = ["align-lib", "align"]
+resolver = "2"
